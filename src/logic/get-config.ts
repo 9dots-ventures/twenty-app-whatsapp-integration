@@ -38,6 +38,7 @@ const handler = async (_params: RoutePayload) => {
 
   return {
     signupServerUrl:     process.env.SIGNUP_SERVER_URL ?? '',
+    twentyBaseUrl:       process.env.SERVER_URL ?? '',
     metaAppId:           process.env.META_APP_ID ?? '',
     metaConfigurationId: process.env.META_CONFIGURATION_ID ?? '',
     metaGraphApiVersion: process.env.META_GRAPH_API_VERSION ?? 'v21.0',

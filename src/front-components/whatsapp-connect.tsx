@@ -7,15 +7,16 @@ import { WHATSAPP_CONNECT_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER } from 'src/const
 
 interface ConfigResponse {
   signupServerUrl: string;
+  twentyBaseUrl: string;
   connections: { id: string }[];
 }
 
 const WhatsAppConnectComponent = () => {
   const [signupUrl, setSignupUrl] = useState<string | null>(null);
+  const [twentyBaseUrl, setTwentyBaseUrl] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [connectionCount, setConnectionCount] = useState(0);
   const [connecting, setConnecting] = useState(false);
-  const popupRef = useRef<Window | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -23,22 +24,21 @@ const WhatsAppConnectComponent = () => {
       .get('/s/whatsapp/config')
       .then((res) => {
         const cfg = res as ConfigResponse;
+        setTwentyBaseUrl(cfg.twentyBaseUrl ?? '');
         setSignupUrl(cfg.signupServerUrl ?? null);
         setConnectionCount(cfg.connections.length);
       })
       .catch(() => setError('Could not load WhatsApp configuration.'));
   }, []);
 
-  // Poll Twenty for new connections while the signup popup is open
+  // Poll Twenty for new connections after the signup tab opens
   const startPolling = (baseline: number) => {
     if (pollRef.current) clearInterval(pollRef.current);
 
     const deadline = Date.now() + 5 * 60 * 1000;
 
     pollRef.current = setInterval(async () => {
-      // Stop if popup closed or timeout reached
-      const popupClosed = !popupRef.current || popupRef.current.closed;
-      if (popupClosed || Date.now() > deadline) {
+      if (Date.now() > deadline) {
         clearInterval(pollRef.current!);
         pollRef.current = null;
         setConnecting(false);
@@ -52,7 +52,6 @@ const WhatsAppConnectComponent = () => {
           pollRef.current = null;
           setConnectionCount(res.connections.length);
           setConnecting(false);
-          popupRef.current?.close();
           enqueueSnackbar({ message: 'WhatsApp Business connected!', variant: 'success' });
         }
       } catch {}
@@ -61,27 +60,16 @@ const WhatsAppConnectComponent = () => {
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
-  const openSignupPopup = () => {
-    if (!signupUrl) return;
-
-    const w = 640, h = 720;
-    const left = Math.round((screen.width - w) / 2);
-    const top = Math.round((screen.height - h) / 2);
-    const popup = window.open(
-      signupUrl,
-      'whatsapp_signup',
-      `width=${w},height=${h},left=${left},top=${top},scrollbars=yes,resizable=yes`
-    );
-
-    if (!popup) {
-      enqueueSnackbar({ message: 'Popup was blocked. Please allow popups for this site.', variant: 'error' });
-      return;
-    }
-
-    popup.focus();
-    popupRef.current = popup;
+  const handleConnectClick = () => {
+    if (connecting || !signupUrl) return;
     setConnecting(true);
     startPolling(connectionCount);
+  };
+
+  const handleCancel = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+    setConnecting(false);
   };
 
   if (error) {
@@ -129,28 +117,30 @@ const WhatsAppConnectComponent = () => {
         </div>
       )}
 
-      <button
-        style={{ ...styles.button, ...(connecting ? styles.buttonDisabled : {}) }}
-        onClick={openSignupPopup}
-        disabled={connecting}
-      >
-        {connecting ? (
-          <>
+      {connecting ? (
+        <>
+          <button style={{ ...styles.button, ...styles.buttonDisabled }} disabled>
             <div style={styles.buttonSpinner} />
             Waiting for connection…
-          </>
-        ) : (
-          <>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-            </svg>
-            {connectionCount > 0 ? 'Connect another account' : 'Connect with Facebook'}
-          </>
-        )}
-      </button>
-
-      {connecting && (
-        <p style={styles.hint}>Complete the signup in the popup window.</p>
+          </button>
+          <button onClick={handleCancel} style={styles.cancelButton}>
+            Cancel
+          </button>
+          <p style={styles.hint}>Complete the signup in the new tab, then return here.</p>
+        </>
+      ) : (
+        <a
+          href={signupUrl ? `${signupUrl}?twentyUrl=${encodeURIComponent(twentyBaseUrl)}` : '#'}
+          target="_blank"
+          rel="opener noreferrer"
+          onClick={handleConnectClick}
+          style={{ ...styles.button, textDecoration: 'none' }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+          </svg>
+          {connectionCount > 0 ? 'Connect another account' : 'Connect with Facebook'}
+        </a>
       )}
     </div>
   );
@@ -246,6 +236,17 @@ const styles: Record<string, React.CSSProperties> = {
     borderTop: '2px solid #fff',
     borderRadius: '50%',
     animation: 'spin 0.8s linear infinite',
+  },
+  cancelButton: {
+    background: 'none',
+    border: '1px solid #d1d5db',
+    borderRadius: '8px',
+    padding: '0 16px',
+    height: '36px',
+    fontSize: '13px',
+    color: '#6b7280',
+    cursor: 'pointer',
+    marginTop: '8px',
   },
   hint: {
     fontSize: '13px',
