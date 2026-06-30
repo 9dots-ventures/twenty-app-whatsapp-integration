@@ -43,3 +43,6 @@ export const VIEW_COL_WABA_UNIVERSAL_IDENTIFIER        = 'ec60723b-e41c-4749-be1
 
 // Command menu item
 export const COMMAND_MENU_ITEM_UNIVERSAL_IDENTIFIER    = '1e53042c-1b10-4819-ba89-fbfe8dbb0ef6';
+
+// Second nav item — WhatsApp Connections object view
+export const WHATSAPP_CONNECTIONS_LIST_NAV_UNIVERSAL_IDENTIFIER = 'e2d5c8b0-4a7f-4e9d-8b3a-1c6f2e4d8a9b';

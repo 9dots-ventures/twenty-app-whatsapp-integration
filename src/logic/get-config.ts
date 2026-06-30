@@ -13,7 +13,7 @@ interface WhatsAppConnectionRecord {
   status: string;
 }
 
-const handler = async (_params: RoutePayload) => {
+const handler = async (params: RoutePayload) => {
   const client = new CoreApiClient();
 
   const result = await client.query({
@@ -36,9 +36,18 @@ const handler = async (_params: RoutePayload) => {
       (edge: { node: WhatsAppConnectionRecord }) => edge.node,
     );
 
+  const headers = (params.headers ?? {}) as Record<string, string>;
+  const origin = headers['origin'] || '';
+  const host = headers['x-forwarded-host'] || headers['host'] || '';
+  const proto = headers['x-forwarded-proto'] || 'https';
+  const twentyBaseUrl =
+    origin ||
+    (host ? `${proto}://${host}` : '') ||
+    (process.env.SERVER_URL ?? '');
+
   return {
     signupServerUrl: SIGNUP_SERVER_URL,
-    twentyBaseUrl:   process.env.SERVER_URL ?? '',
+    twentyBaseUrl,
     connections,
   };
 };

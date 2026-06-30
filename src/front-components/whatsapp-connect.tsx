@@ -24,7 +24,11 @@ const WhatsAppConnectComponent = () => {
       .get('/s/whatsapp/config')
       .then((res) => {
         const cfg = res as ConfigResponse;
-        setTwentyBaseUrl(cfg.twentyBaseUrl ?? '');
+        const workerOrigin =
+          typeof self !== 'undefined' && self.location?.origin && self.location.origin !== 'null'
+            ? self.location.origin
+            : '';
+        setTwentyBaseUrl(cfg.twentyBaseUrl || workerOrigin);
         setSignupUrl(cfg.signupServerUrl ?? null);
         setConnectionCount(cfg.connections.length);
       })
