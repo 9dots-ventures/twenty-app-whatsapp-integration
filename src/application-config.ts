@@ -12,7 +12,7 @@ export default defineApplication({
   description: APP_DESCRIPTION,
   author: '9dots',
   category: 'Integrations',
-  emailSupport: 'support@9dots.io',
+  emailSupport: 'hello@9dots.co',
   applicationVariables: {
     APP_API_KEY: {
       universalIdentifier: 'c24ff7a7-79f9-43fd-bb4a-ead062091232',
