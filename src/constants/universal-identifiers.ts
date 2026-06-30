@@ -1,3 +1,6 @@
+// Signup server — fixed URL, ships with the app
+export const SIGNUP_SERVER_URL = 'https://whatsapp-embeddedsignup.onrender.com';
+
 // Application
 export const APP_DISPLAY_NAME = 'WhatsApp Business';
 export const APP_DESCRIPTION = 'Connect WhatsApp Business accounts to Twenty CRM via Meta embedded signup';

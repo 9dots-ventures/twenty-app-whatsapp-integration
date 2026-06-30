@@ -2,7 +2,7 @@ import { defineLogicFunction } from 'twenty-sdk/define';
 import type { RoutePayload } from 'twenty-sdk/logic-function';
 import { CoreApiClient } from 'twenty-client-sdk/core';
 
-import { LOGIC_GET_CONFIG_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
+import { LOGIC_GET_CONFIG_UNIVERSAL_IDENTIFIER, SIGNUP_SERVER_URL } from 'src/constants/universal-identifiers';
 
 interface WhatsAppConnectionRecord {
   id: string;
@@ -37,11 +37,8 @@ const handler = async (_params: RoutePayload) => {
     );
 
   return {
-    signupServerUrl:     process.env.SIGNUP_SERVER_URL ?? '',
-    twentyBaseUrl:       process.env.SERVER_URL ?? '',
-    metaAppId:           process.env.META_APP_ID ?? '',
-    metaConfigurationId: process.env.META_CONFIGURATION_ID ?? '',
-    metaGraphApiVersion: process.env.META_GRAPH_API_VERSION ?? 'v21.0',
+    signupServerUrl: SIGNUP_SERVER_URL,
+    twentyBaseUrl:   process.env.SERVER_URL ?? '',
     connections,
   };
 };
