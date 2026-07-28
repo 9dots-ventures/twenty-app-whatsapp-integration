@@ -230,6 +230,7 @@ Not part of the Twenty app package. Deployed separately at `https://whatsapp-emb
 | `PERMANENT_ACCESS_TOKEN` | Long-lived token for WABA sync endpoints |
 | `BUSINESS_ID` | Meta Business Manager ID |
 | `DATABASE_URL` | Supabase PostgreSQL connection string — enables `saveToSupabase()` |
+| `WEBHOOK_VERIFY_TOKEN` | Arbitrary secret set when registering the webhook in Meta Business Manager — verified on `GET /api/webhook` |
 
 **Flow after signup completes:**
 1. `WA_EMBEDDED_SIGNUP` postMessage → `handleSuccessfulFlow(data.data)`
@@ -256,6 +257,43 @@ CREATE INDEX idx_whatsapp_connections_waba_id ON whatsapp_connections (waba_id);
 ```
 
 Upserts on `waba_id` — reconnecting the same WABA refreshes `twenty_api_key` and `updated_at`.
+
+---
+
+## Incoming-Message Webhook
+
+Render handles WhatsApp Cloud API webhooks at `/api/webhook`.
+
+### Registration (one-time in Meta Business Manager)
+
+1. Set **Callback URL** to `https://whatsapp-embeddedsignup.onrender.com/api/webhook`
+2. Set **Verify token** to the value of `WEBHOOK_VERIFY_TOKEN` (any secret string)
+3. Subscribe to the **messages** field
+
+### GET `/api/webhook` — verification
+
+Meta calls this when the webhook is first registered. The server echoes back `hub.challenge` if `hub.verify_token` matches `WEBHOOK_VERIFY_TOKEN`.
+
+### POST `/api/webhook` — message handler
+
+Flow for each incoming message event:
+
+1. Respond `200 OK` immediately (Meta requires a reply within 5 s)
+2. Extract `entry[].id` → WABA ID
+3. Skip if `entry.changes[].field !== "messages"` or no contacts/messages in the payload
+4. Look up `twenty_url` + `twenty_api_key` from Supabase `whatsapp_connections` by `waba_id`
+5. Parse contact: `wa_id` → phone (prepend `+`), `profile.name` → firstName + lastName
+6. Call `GET /api` (Twenty GraphQL) — search for a person with matching `primaryPhoneNumber`
+7. If found: skip (log). If not: call `createPerson` mutation to save the contact
+8. Log result; any error is non-fatal and does not affect the `200 OK` already sent
+
+### Twenty People fields written
+
+| Field | Value |
+|---|---|
+| `name.firstName` | First word of WhatsApp `profile.name`; falls back to full phone |
+| `name.lastName` | Remaining words of the display name |
+| `phones.primaryPhoneNumber` | `wa_id` with `+` prepended (e.g. `+15550000000`) |
 
 ---
 
