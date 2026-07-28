@@ -1,6 +1,7 @@
 import { defineLogicFunction } from 'twenty-sdk/define';
 import type { RoutePayload } from 'twenty-sdk/logic-function';
 import { CoreApiClient } from 'twenty-client-sdk/core';
+import { MetadataApiClient } from 'twenty-client-sdk/metadata';
 
 import { LOGIC_SAVE_CONNECTION_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
 
@@ -13,6 +14,52 @@ interface SaveConnectionBody {
   accessToken?: string;
   adAccountIds?: string[];
   pageIds?: string[];
+}
+
+async function createTwentyApiKey(wabaId: string): Promise<string | null> {
+  try {
+    const metaClient = new MetadataApiClient();
+
+    const rolesResult = await metaClient.query({
+      roles: {
+        id: true,
+        label: true,
+        canBeAssignedToApiKeys: true,
+      },
+    });
+
+    const roles = (rolesResult?.roles ?? []) as { id: string; label: string; canBeAssignedToApiKeys: boolean }[];
+    const assignable = roles.filter((r) => r.canBeAssignedToApiKeys);
+    if (assignable.length === 0) return null;
+
+    const role =
+      assignable.find((r) => r.label.toLowerCase() === 'member') ?? assignable[0];
+
+    const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+
+    const created = await metaClient.mutation({
+      createApiKey: {
+        __args: {
+          input: { name: `WhatsApp — ${wabaId}`, expiresAt, roleId: role.id },
+        },
+        id: true,
+      },
+    });
+
+    const apiKeyId = created?.createApiKey?.id;
+    if (!apiKeyId) return null;
+
+    const tokenResult = await metaClient.mutation({
+      generateApiKeyToken: {
+        __args: { apiKeyId, expiresAt },
+        token: true,
+      },
+    });
+
+    return tokenResult?.generateApiKeyToken?.token ?? null;
+  } catch {
+    return null;
+  }
 }
 
 const handler = async (params: RoutePayload) => {
@@ -67,7 +114,8 @@ const handler = async (params: RoutePayload) => {
       },
     });
 
-    return { success: true, recordId: updated?.updateWhatsappConnection?.id, wabaId: body.wabaId, action: 'updated' };
+    const twentyApiKey = await createTwentyApiKey(body.wabaId);
+    return { success: true, recordId: updated?.updateWhatsappConnection?.id, wabaId: body.wabaId, action: 'updated', twentyApiKey };
   }
 
   const created = await client.mutation({
@@ -91,7 +139,8 @@ const handler = async (params: RoutePayload) => {
     },
   });
 
-  return { success: true, recordId: created?.createWhatsappConnection?.id, wabaId: body.wabaId, action: 'created' };
+  const twentyApiKey = await createTwentyApiKey(body.wabaId);
+  return { success: true, recordId: created?.createWhatsappConnection?.id, wabaId: body.wabaId, action: 'created', twentyApiKey };
 };
 
 export default defineLogicFunction({
