@@ -1,6 +1,6 @@
 # WhatsApp Business App — Implementation Reference
 
-Twenty SDK v2.16.0 · TypeScript + React 19
+Twenty SDK v2.23.0 · TypeScript + React 19
 
 ---
 
@@ -22,8 +22,16 @@ Front Component (whatsapp-connect.tsx)
                               ▼
                    POST /s/whatsapp/save-connection  →  save-connection logic function
                               │
+                  ┌───────────┴───────────────────┐
+                  ▼                               ▼
+  whatsappConnection record           Twenty API key created
+  created/updated in Twenty           (MetadataApiClient)
+                              │
+                   Render server: saveToSupabase()
+                              │
                               ▼
-                   whatsappConnection record created in Twenty
+                   whatsapp_connections row upserted in Supabase
+                   (waba_id, twenty_url, twenty_api_key, ...)
 ```
 
 ---
@@ -103,13 +111,20 @@ Front Component (whatsapp-connect.tsx)
 **Response**
 
 ```json
-{ "success": true, "recordId": "<uuid>", "wabaId": "...", "action": "created" | "updated" }
+{
+  "success": true,
+  "recordId": "<uuid>",
+  "wabaId": "...",
+  "action": "created" | "updated",
+  "twentyApiKey": "<token or null>"
+}
 ```
 
 **Behaviour**
 - If `APP_API_KEY` is set in app settings, incoming `x-app-api-key` header must match or the function returns `{ success: false, error: "Unauthorized" }`.
 - Looks up existing record by `wabaId`. Updates if found, creates if not.
 - Sets `status: "CONNECTED"` on every upsert.
+- After saving the record, uses `MetadataApiClient` to create a workspace API key named `"WhatsApp — <wabaId>"` (1-year expiry) assigned to the first role with `canBeAssignedToApiKeys: true` (prefers "Member"). Returns the token as `twentyApiKey`. Returns `null` if key creation fails — the connection record is still saved.
 
 ---
 
@@ -214,12 +229,33 @@ Not part of the Twenty app package. Deployed separately at `https://whatsapp-emb
 | `TWENTY_APP_URL` | Fallback Twenty URL — used if `twentyUrl` query param is missing |
 | `PERMANENT_ACCESS_TOKEN` | Long-lived token for WABA sync endpoints |
 | `BUSINESS_ID` | Meta Business Manager ID |
+| `DATABASE_URL` | Supabase PostgreSQL connection string — enables `saveToSupabase()` |
 
 **Flow after signup completes:**
 1. `WA_EMBEDDED_SIGNUP` postMessage → `handleSuccessfulFlow(data.data)`
 2. `sendFlowDataToBackend('SUCCESS', flowData)` → POST `/api/flow-event` with `{ eventType, flowData, twentyUrl }`
 3. Server: `storeSuccessfulSignup` → `saveToCRM(flowData, twentyUrl)`
-4. `saveToCRM` → POST `<twentyUrl>/s/whatsapp/save-connection`
+4. `saveToCRM` → POST `<twentyUrl>/s/whatsapp/save-connection` → returns `{ twentyApiKey, ... }`
+5. Server: `saveToSupabase({ twentyApiKey, twentyUrl, wabaId, phoneNumberId, businessId })` → upserts into Supabase
+
+**Supabase schema** (`whatsapp_connections` table):
+
+```sql
+CREATE TABLE whatsapp_connections (
+  id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  waba_id         TEXT        NOT NULL UNIQUE,
+  phone_number_id TEXT,
+  business_id     TEXT,
+  twenty_url      TEXT        NOT NULL,
+  twenty_api_key  TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_whatsapp_connections_waba_id ON whatsapp_connections (waba_id);
+```
+
+Upserts on `waba_id` — reconnecting the same WABA refreshes `twenty_api_key` and `updated_at`.
 
 ---
 
@@ -237,7 +273,7 @@ yarn twenty remote:add --as <name> --url <https://your-twenty-url>
 yarn twenty remote:use <name>
 
 # Sync
-yarn twenty dev --once
+yarn twenty apply
 ```
 
 Configured remotes:
