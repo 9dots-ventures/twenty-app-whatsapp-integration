@@ -20,5 +20,11 @@ export default defineApplication({
       value: '',
       isSecret: true,
     },
+    WORKSPACE_API_KEY: {
+      universalIdentifier: 'd3a1b2c4-8e5f-4a9b-b1c2-3d4e5f6a7b8c',
+      description: 'Twenty workspace API key — saved to Supabase after each onboarding so the backend can call the CRM',
+      value: '',
+      isSecret: true,
+    },
   },
 });
