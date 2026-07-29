@@ -57,7 +57,8 @@ async function createTwentyApiKey(wabaId: string): Promise<string | null> {
     });
 
     return tokenResult?.generateApiKeyToken?.token ?? null;
-  } catch {
+  } catch (err) {
+    console.error('createTwentyApiKey failed:', err);
     return null;
   }
 }
