@@ -34,23 +34,10 @@ const NINEDOTS_URL =
  * Bubbles drift in from the left and land as rows in a mock CRM contacts table.
  * Sized to its container (not the window) and torn down on unmount.
  */
-const ParticleFlow = ({ assetOrigin }: { assetOrigin: string }) => {
+// Image constructor is not available in Twenty's Worker sandbox —
+// always use the emoji fallback for the flying bubble.
+const ParticleFlow = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [bubbleImg, setBubbleImg] = useState<HTMLImageElement | null>(null);
-
-  // Use the real WhatsApp logo as the flying bubble when it is reachable,
-  // otherwise fall back to the 💬 emoji glyph the original page used.
-  useEffect(() => {
-    if (!assetOrigin) return;
-    // No crossOrigin: the canvas is never read back, so tainting is harmless
-    // and this avoids depending on CORS headers from the signup server.
-    const img = new Image();
-    img.onload = () => setBubbleImg(img);
-    img.src = `${assetOrigin}/whatsapp-logo.png`;
-    return () => {
-      img.onload = null;
-    };
-  }, [assetOrigin]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -61,6 +48,7 @@ const ParticleFlow = ({ assetOrigin }: { assetOrigin: string }) => {
     if (!ctx) return;
 
     const reduceMotion =
+      typeof window !== 'undefined' &&
       typeof window.matchMedia === 'function' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -162,14 +150,10 @@ const ParticleFlow = ({ assetOrigin }: { assetOrigin: string }) => {
       ctx.globalAlpha = alpha;
       ctx.shadowColor = `rgba(37,211,102,${alpha * 0.7})`;
       ctx.shadowBlur = s * 0.4;
-      if (bubbleImg) {
-        ctx.drawImage(bubbleImg, x - s / 2, y - s / 2, s, s);
-      } else {
-        ctx.font = `${s}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('💬', x, y);
-      }
+      ctx.font = `${s}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('💬', x, y);
       ctx.restore();
     };
 
@@ -346,7 +330,7 @@ const ParticleFlow = ({ assetOrigin }: { assetOrigin: string }) => {
       const cssH = parent.clientHeight;
       if (cssW === 0 || cssH === 0) return;
 
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      dpr = Math.min((typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1, 2);
       W = canvas.width = cssW * dpr;
       H = canvas.height = cssH * dpr;
       canvas.style.width = `${cssW}px`;
@@ -372,7 +356,7 @@ const ParticleFlow = ({ assetOrigin }: { assetOrigin: string }) => {
       observer.disconnect();
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [bubbleImg]);
+  }, []);
 
   return <canvas ref={canvasRef} style={styles.canvas} aria-hidden="true" />;
 };
@@ -477,7 +461,7 @@ const WhatsAppConnectComponent = () => {
   if (error) {
     return (
       <div style={styles.stage}>
-        <ParticleFlow assetOrigin={assetOrigin} />
+        <ParticleFlow />
         <div style={styles.centered}>
           <p style={{ ...styles.statusBase, ...styles.statusError }}>{error}</p>
         </div>
@@ -490,7 +474,7 @@ const WhatsAppConnectComponent = () => {
     return (
       <div style={styles.stage}>
         <Keyframes />
-        <ParticleFlow assetOrigin={assetOrigin} />
+        <ParticleFlow />
         <div style={styles.centered}>
           <div style={styles.spinner} />
           <p style={styles.subtitle}>Loading…</p>
@@ -503,7 +487,7 @@ const WhatsAppConnectComponent = () => {
   return (
     <div style={styles.stage}>
       <Keyframes />
-      <ParticleFlow assetOrigin={assetOrigin} />
+      <ParticleFlow />
 
       <div style={styles.content}>
         <div style={styles.container}>
