@@ -29,338 +29,6 @@ const FALLBACK_ASSET_ORIGIN = originOf(SIGNUP_SERVER_URL);
 const NINEDOTS_URL =
   'https://9dots.co/?utm_source=twenty&utm_medium=app&utm_campaign=Twenty-Whatsapp-app';
 
-/**
- * Background chat-bubble flow — ported from whatsapp_signup/public/index.html.
- * Bubbles drift in from the left and land as rows in a mock CRM contacts table.
- * Sized to its container (not the window) and torn down on unmount.
- */
-// Image constructor is not available in Twenty's Worker sandbox —
-// always use the emoji fallback for the flying bubble.
-const ParticleFlow = () => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const parent = canvas?.parentElement;
-    if (!canvas || !parent) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const reduceMotion =
-      typeof window !== 'undefined' &&
-      typeof window.matchMedia === 'function' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-    const NAMES = [
-      'Dario Amodei', 'Ryan Roslansky', 'Stewart Butterfield', 'Ivan Zhao',
-      'Dylan Field', 'Tobias Lutke', 'Melanie Perkins', 'Parker Conrad',
-      'Henrique Dubugras', 'Howie Liu', 'Mathilde Collin', 'Amir Salihefendic',
-    ];
-    const PHONES = [
-      '+1 415 555 0101', '+1 650 555 0134', '+1 415 555 0142', '+1 628 555 0186',
-      '+1 415 555 0128', '+1 650 555 0177', '+1 628 555 0190', '+1 415 555 0163',
-      '+1 650 555 0119', '+1 628 555 0205', '+1 415 555 0188', '+1 650 555 0144',
-    ];
-    const SOURCES = ['Whatsapp', 'Main Whatsapp', 'Support Whatsapp', 'Sales Whatsapp'];
-
-    const pick = <T,>(a: T[]): T => a[Math.floor(Math.random() * a.length)];
-
-    interface Row { name: string; phone: string; source: string; flash: number; visible: boolean }
-    interface Table {
-      x: number; y: number; w: number; rowH: number; headerH: number; rows: number; cb: number;
-      cols: { key: string; x: number; w: number }[];
-      data: Row[];
-    }
-    interface Particle {
-      state: 'travel' | 'slot' | 'fade';
-      x: number; y: number; speed: number; wob: number; phase: number; size: number;
-      targetRow: number; snap: number; sx: number; sy: number; delay: number; life: number;
-    }
-
-    let W = 0;
-    let H = 0;
-    let dpr = 1;
-    let table: Table;
-    let particles: Particle[] = [];
-    let clock = 0;
-    let raf = 0;
-
-    const buildTable = (cssW: number, cssH: number) => {
-      const wide = cssW >= 760;
-      const tw = Math.min(cssW * (wide ? 0.3 : 0.62), 340) * dpr;
-      const rowH = Math.max(20, Math.min(28, cssH / 24)) * dpr;
-      const headerH = rowH * 0.95;
-      const rows = Math.max(4, Math.min(9, Math.floor((H * 0.62) / rowH)));
-      const tx = W - tw - 28 * dpr;
-      const totalH = headerH + rows * rowH;
-      const ty = (H - totalH) / 2;
-
-      const cb = rowH * 0.5;
-      const nameW = tw * 0.42;
-      const phoneW = tw * 0.32;
-      const srcW = tw - nameW - phoneW;
-
-      table = {
-        x: tx, y: ty, w: tw, rowH, headerH, rows, cb,
-        cols: [
-          { key: 'Name', x: tx, w: nameW },
-          { key: 'Phone', x: tx + nameW, w: phoneW },
-          { key: 'Source', x: tx + nameW + phoneW, w: srcW },
-        ],
-        data: Array.from({ length: rows }, () => ({
-          name: pick(NAMES), phone: pick(PHONES), source: pick(SOURCES),
-          flash: 0, visible: false,
-        })),
-      };
-    };
-
-    const rowCenterY = (i: number) => table.y + table.headerH + i * table.rowH + table.rowH / 2;
-    const rowEntryX = () => table.x + table.cb * 2.2;
-
-    const makeParticle = (): Particle => {
-      const row = Math.floor(Math.random() * table.rows);
-      return {
-        state: 'travel',
-        x: -60 * dpr,
-        y: rowCenterY(row) + (Math.random() - 0.5) * table.rowH * 0.3,
-        speed: (2.0 + Math.random() * 2.2) * dpr,
-        wob: 0.5 + Math.random() * 1.0,
-        phase: Math.random() * Math.PI * 2,
-        size: table.rowH * 1.5,
-        targetRow: row,
-        snap: 0, sx: 0, sy: 0,
-        delay: 0,
-        life: 0,
-      };
-    };
-
-    const initParticles = (cssH: number) => {
-      const count = Math.max(5, Math.min(11, Math.floor(cssH / 90)));
-      particles = Array.from({ length: count }, () => {
-        const p = makeParticle();
-        p.x = Math.random() * (table.x - 40 * dpr);
-        p.delay = Math.random() * 2.5;
-        return p;
-      });
-    };
-
-    const drawBubble = (x: number, y: number, s: number, alpha: number) => {
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.shadowColor = `rgba(37,211,102,${alpha * 0.7})`;
-      ctx.shadowBlur = s * 0.4;
-      ctx.font = `${s}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('💬', x, y);
-      ctx.restore();
-    };
-
-    const easeOutBack = (t: number) => {
-      const c1 = 1.70158;
-      const c3 = c1 + 1;
-      return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
-    };
-    const easeInCubic = (t: number) => t * t * t;
-
-    const roundRect = (x: number, y: number, w: number, h: number, r: number) => {
-      ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.arcTo(x + w, y, x + w, y + h, r);
-      ctx.arcTo(x + w, y + h, x, y + h, r);
-      ctx.arcTo(x, y + h, x, y, r);
-      ctx.arcTo(x, y, x + w, y, r);
-      ctx.closePath();
-    };
-
-    const drawTable = () => {
-      const t = table;
-      const radius = 10 * dpr;
-      const { x, y, w } = t;
-      const h = t.headerH + t.rows * t.rowH;
-
-      ctx.save();
-      roundRect(x, y, w, h, radius);
-      ctx.fillStyle = 'rgba(12, 24, 20, 0.72)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(110, 231, 168, 0.14)';
-      ctx.lineWidth = 1 * dpr;
-      ctx.stroke();
-      ctx.clip();
-
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
-      ctx.font = `${Math.round(t.headerH * 0.34)}px -apple-system, "Segoe UI", sans-serif`;
-      ctx.textBaseline = 'middle';
-      const hy = y + t.headerH / 2;
-      for (const col of t.cols) {
-        ctx.textAlign = 'left';
-        const padL = col.key === 'Name' ? t.cb * 2.2 : 14 * dpr;
-        ctx.fillText(col.key, col.x + padL, hy);
-      }
-      ctx.strokeStyle = 'rgba(255,255,255,0.10)';
-      ctx.beginPath();
-      ctx.moveTo(x, y + t.headerH);
-      ctx.lineTo(x + w, y + t.headerH);
-      ctx.stroke();
-
-      const nameFont = Math.round(t.rowH * 0.3);
-      for (let i = 0; i < t.rows; i++) {
-        const d = t.data[i];
-        const cy = rowCenterY(i);
-        const rowTop = y + t.headerH + i * t.rowH;
-
-        if (d.flash > 0.01) {
-          ctx.fillStyle = `rgba(37, 211, 102, ${d.flash * 0.22})`;
-          ctx.fillRect(x, rowTop, w, t.rowH);
-          d.flash *= 0.9;
-        }
-
-        if (!d.visible) {
-          ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-          ctx.beginPath();
-          ctx.moveTo(x, rowTop + t.rowH);
-          ctx.lineTo(x + w, rowTop + t.rowH);
-          ctx.stroke();
-          continue;
-        }
-
-        const cbX = t.cols[0].x + 14 * dpr;
-        const cbS = t.cb;
-        ctx.strokeStyle = 'rgba(255,255,255,0.30)';
-        ctx.lineWidth = 1.4 * dpr;
-        roundRect(cbX, cy - cbS / 2, cbS, cbS, 4 * dpr);
-        ctx.stroke();
-
-        ctx.font = `600 ${nameFont}px -apple-system, "Segoe UI", sans-serif`;
-        const nameX = t.cols[0].x + t.cb * 2.2;
-        const nameW = ctx.measureText(d.name).width;
-        ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        roundRect(nameX - 6 * dpr, cy - nameFont * 0.78, nameW + 12 * dpr, nameFont * 1.55, 6 * dpr);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(240,250,245,0.92)';
-        ctx.textAlign = 'left';
-        ctx.fillText(d.name, nameX, cy);
-
-        ctx.font = `${nameFont}px -apple-system, "Segoe UI", sans-serif`;
-        const phX = t.cols[1].x + 14 * dpr;
-        const phW = ctx.measureText(d.phone).width;
-        ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-        ctx.lineWidth = 1.2 * dpr;
-        roundRect(phX - 8 * dpr, cy - nameFont * 0.85, phW + 16 * dpr, nameFont * 1.7, nameFont);
-        ctx.stroke();
-        ctx.fillStyle = 'rgba(225,240,235,0.85)';
-        ctx.fillText(d.phone, phX, cy);
-
-        ctx.fillStyle = 'rgba(210,235,225,0.75)';
-        ctx.fillText(d.source, t.cols[2].x + 14 * dpr, cy);
-
-        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-        ctx.beginPath();
-        ctx.moveTo(x, rowTop + t.rowH);
-        ctx.lineTo(x + w, rowTop + t.rowH);
-        ctx.stroke();
-      }
-      ctx.restore();
-    };
-
-    const frame = () => {
-      clock += 0.016;
-      ctx.fillStyle = 'rgba(5, 8, 12, 0.30)';
-      ctx.fillRect(0, 0, W, H);
-
-      drawTable();
-
-      for (const p of particles) {
-        if (p.delay > 0) {
-          p.delay -= 0.016;
-          continue;
-        }
-
-        if (p.state === 'travel') {
-          p.x += p.speed;
-          const ty = rowCenterY(p.targetRow);
-          const distToTable = Math.max(0, table.x - p.x);
-          const wobAmt = Math.min(1, distToTable / (table.x * 0.5)) * 0.5 * dpr;
-          p.y += Math.sin(clock * p.wob + p.phase) * wobAmt;
-          p.y += (ty - p.y) * 0.04;
-
-          drawBubble(p.x, p.y, p.size, 0.9);
-
-          if (p.x >= rowEntryX() - p.size * 0.3) {
-            p.state = 'slot';
-            p.snap = 0;
-            p.sx = p.x;
-            p.sy = p.y;
-          }
-        } else if (p.state === 'slot') {
-          p.snap = Math.min(1, p.snap + 0.06);
-          const e = easeOutBack(p.snap);
-          const tx = rowEntryX();
-          const ty = rowCenterY(p.targetRow);
-          p.x = p.sx + (tx - p.sx) * e;
-          p.y = p.sy + (ty - p.sy) * Math.min(1, p.snap * 1.2);
-          drawBubble(p.x, p.y, p.size * (1 + 0.06 * (1 - p.snap)), 0.95);
-
-          if (p.snap >= 1) {
-            const d = table.data[p.targetRow];
-            d.visible = true;
-            d.name = pick(NAMES);
-            d.phone = pick(PHONES);
-            d.source = pick(SOURCES);
-            d.flash = 1;
-            p.state = 'fade';
-            p.life = 0;
-          }
-        } else {
-          p.life += 0.05;
-          const a = 1 - easeInCubic(Math.min(1, p.life));
-          drawBubble(rowEntryX(), rowCenterY(p.targetRow), p.size * (1 - 0.25 * p.life), a);
-          if (p.life >= 1) {
-            Object.assign(p, makeParticle());
-            p.delay = 0.6 + Math.random() * 2.4;
-          }
-        }
-      }
-      raf = requestAnimationFrame(frame);
-    };
-
-    const resize = () => {
-      const cssW = parent.clientWidth;
-      const cssH = parent.clientHeight;
-      if (cssW === 0 || cssH === 0) return;
-
-      dpr = Math.min((typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1, 2);
-      W = canvas.width = cssW * dpr;
-      H = canvas.height = cssH * dpr;
-      canvas.style.width = `${cssW}px`;
-      canvas.style.height = `${cssH}px`;
-      buildTable(cssW, cssH);
-      initParticles(cssH);
-
-      if (reduceMotion) {
-        // Draw the populated table once, without the moving bubbles.
-        ctx.clearRect(0, 0, W, H);
-        for (const row of table.data) row.visible = true;
-        drawTable();
-      }
-    };
-
-    const observer = new ResizeObserver(resize);
-    observer.observe(parent);
-    resize();
-
-    if (!reduceMotion) raf = requestAnimationFrame(frame);
-
-    return () => {
-      observer.disconnect();
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, []);
-
-  return <canvas ref={canvasRef} style={styles.canvas} aria-hidden="true" />;
-};
-
 const FooterBranding = ({ assetOrigin }: { assetOrigin: string }) => (
   <div style={styles.footerBranding}>
     {assetOrigin && (
@@ -402,7 +70,6 @@ const WhatsAppConnectComponent = () => {
       .catch(() => setError('Could not load WhatsApp configuration.'));
   }, []);
 
-  // Poll Twenty for new connections after the signup window opens
   const startPolling = (baseline: number) => {
     if (pollRef.current) clearInterval(pollRef.current);
 
@@ -461,7 +128,6 @@ const WhatsAppConnectComponent = () => {
   if (error) {
     return (
       <div style={styles.stage}>
-        <ParticleFlow />
         <div style={styles.centered}>
           <p style={{ ...styles.statusBase, ...styles.statusError }}>{error}</p>
         </div>
@@ -473,8 +139,7 @@ const WhatsAppConnectComponent = () => {
   if (!signupUrl) {
     return (
       <div style={styles.stage}>
-        <Keyframes />
-        <ParticleFlow />
+        <style>{`@keyframes wa-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
         <div style={styles.centered}>
           <div style={styles.spinner} />
           <p style={styles.subtitle}>Loading…</p>
@@ -486,8 +151,7 @@ const WhatsAppConnectComponent = () => {
 
   return (
     <div style={styles.stage}>
-      <Keyframes />
-      <ParticleFlow />
+      <style>{`@keyframes wa-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
 
       <div style={styles.content}>
         <div style={styles.container}>
@@ -612,10 +276,6 @@ const WhatsAppConnectComponent = () => {
   );
 };
 
-const Keyframes = () => (
-  <style>{`@keyframes wa-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-);
-
 const styles: Record<string, React.CSSProperties> = {
   stage: {
     position: 'relative',
@@ -631,15 +291,6 @@ const styles: Record<string, React.CSSProperties> = {
     ].join(', '),
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     color: '#eef1ff',
-  },
-  canvas: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    display: 'block',
-    zIndex: 1,
-    opacity: 0.85,
-    pointerEvents: 'none',
   },
   content: {
     position: 'relative',
@@ -816,10 +467,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '15px',
     fontFamily: 'inherit',
     outline: 'none',
-  },
-  fieldHint: {
-    fontSize: '12px',
-    color: 'rgba(225, 245, 235, 0.45)',
   },
   btn: {
     display: 'inline-flex',
