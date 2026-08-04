@@ -24,6 +24,7 @@ Link the app to your WhatsApp Business number to get started.
 2. The integration requires you to have a Business Portfolio in Meta. You can create one when onboarding
 
 ## How to connect Whatsapp after you installed the app
+- add API keys [TODO]
 - Go to Command Menu Items
 - Find Twenty WABA
 - Click and complete Meta signup
