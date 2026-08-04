@@ -12,7 +12,9 @@ User (9dots.twenty.com)
         ▼
 Front Component (whatsapp-connect.tsx)
   ├─ calls GET /s/whatsapp/config  →  get-config logic function
-  └─ opens new tab →  https://whatsapp-embeddedsignup.onrender.com?twentyUrl=<encoded>
+  ├─ collects a WhatsApp phone number (free text, not persisted)
+  └─ "Connect" opens a new window →
+       https://whatsapp-embeddedsignup.onrender.com?twentyUrl=<encoded>&phone=<encoded>
                               │
                               ▼
                    Facebook Embedded Signup (popup)
@@ -171,7 +173,36 @@ The connect UI (front component) is accessible via Cmd+K → "Connect WhatsApp B
 
 Universal ID: `f4f1daaf-94f5-4dac-bc41-3ea3c63bb42b`
 
-On mount calls `GET /s/whatsapp/config`. Displays a "Connect with Facebook" anchor link that opens the signup server in a new tab with `?twentyUrl=<encoded Twenty origin>`. While the tab is open, polls `GET /s/whatsapp/config` every 3 s (5-minute deadline) watching for `connections.length` to increase. Shows "1 account connected" badge and "Connect another account" once at least one connection exists.
+On mount calls `GET /s/whatsapp/config`.
+
+**UI** — mirrors `whatsapp_signup/public/index.html`: dark radial/linear gradient stage, glassmorphic card (blur + saturate, 24 px radius), WhatsApp → Twenty logo row with a gradient connector arrow, gradient-clipped heading, and status banners using the same `success` / `error` / `info` palettes. The `@keyframes wa-spin` rule is injected via an inline `<style>` element since inline styles cannot declare keyframes.
+
+**Assets** — all images are served by the signup server and referenced by absolute URL against its origin (`SIGNUP_SERVER_URL`, falling back from the `signupServerUrl` in the config response):
+
+| Asset | Used for |
+|---|---|
+| `/whatsapp-logo.png` | Logo row (left) + the flying chat bubble on the canvas |
+| `/Twenty_logo.png` | Logo row (right) |
+| `/9dots-logo.jpg` | Footer branding |
+
+The two logo-row images fall back to inline SVG if they fail to load (`logosBroken` state).
+
+**Background canvas** (`ParticleFlow`) — a port of the particle animation in `index.html`. Chat bubbles drift in from the left and land as rows in a mock CRM contacts table (Name / Phone / Source) drawn on the right, flashing green on arrival. Differences from the original:
+
+- Sized to its parent element via `ResizeObserver`, not `window.innerWidth/innerHeight`, so it works inside the side panel.
+- The bubble is the WhatsApp logo image once loaded; falls back to the 💬 emoji glyph. `crossOrigin` is deliberately not set — the canvas is never read back, so tainting is harmless and CORS headers are not required.
+- Honours `prefers-reduced-motion: reduce` by drawing the populated table once with no animation loop.
+- `cancelAnimationFrame` + `ResizeObserver.disconnect()` on unmount.
+
+Layered with `zIndex`: canvas `1` (opacity 0.85, `pointerEvents: none`), card content `3`, footer `4`. The stage is `overflow: hidden` and the card scrolls internally via `maxHeight: 100%`.
+
+**Footer branding** (`FooterBranding`) — 9dots logo + "made with ❤️ from 9dots" linking to `9dots.co` with the `utm_source=twenty` campaign params, absolutely positioned at the bottom of the stage. Rendered in all three states (loaded, loading, error).
+
+**Phone number field** — a required free-text `tel` input. Any country code is accepted and **no validation is applied**. The value is passed to the signup server as `?phone=<encoded>` and is **not persisted** by any backend. The Connect button is disabled while the field is empty.
+
+**Connect CTA** — there is no "Login with Facebook" button in this component; Facebook auth happens inside the signup page. The green "Connect" button calls `window.open(<signupUrl>?twentyUrl=…&phone=…, 'whatsapp-embedded-signup', 'width=720,height=860')`. If the popup is blocked, an error status banner is shown and polling does not start.
+
+**Polling** — while the signup window is open, polls `GET /s/whatsapp/config` every 3 s (5-minute deadline) watching for `connections.length` to increase; on success it shows a success banner plus a snackbar. Shows an "N accounts connected" badge and "Connect another account" once at least one connection exists.
 
 `twentyBaseUrl` is derived from `self.location.origin` (web worker origin) as a fallback when the server response returns an empty string.
 
@@ -294,6 +325,31 @@ Flow for each incoming message event:
 | `name.firstName` | First word of WhatsApp `profile.name`; falls back to full phone |
 | `name.lastName` | Remaining words of the display name |
 | `phones.primaryPhoneNumber` | `wa_id` with `+` prepended (e.g. `+15550000000`) |
+
+---
+
+## Local UI Preview
+
+`yarn preview` serves `src/front-components/whatsapp-connect.tsx` as a plain React
+app on **http://localhost:4001** — no Twenty server, no Docker. Use it to iterate
+on the connect UI before syncing.
+
+| File | Purpose |
+|---|---|
+| `preview/vite.config.ts` | Vite config — port 4001, aliases Twenty imports to stubs, maps `src/*` |
+| `preview/index.html` | Host page; `#stage` mimics the widget box |
+| `preview/main.tsx` | Mounts `whatsappConnect.component`; `?frame=panel` for side-panel width |
+| `preview/stubs/define.ts` | `defineFrontComponent` → identity |
+| `preview/stubs/front-component.tsx` | `enqueueSnackbar` → DOM toast |
+| `preview/stubs/rest.ts` | Fakes `GET /s/whatsapp/config`; intercepts `window.open` |
+| `preview/README.md` | Query-param reference and common check URLs |
+
+State is driven by query params — `state=loading|error`, `connections=N`,
+`delay=ms`, `autoconnect=seconds`, `popup=real|blocked`, `frame=panel`.
+
+**Scope**: UI only. The manifest, logic functions, permissions, and the
+front-component sandbox are not exercised — validate those with `yarn twenty dev`
+against a real instance before deploying.
 
 ---
 

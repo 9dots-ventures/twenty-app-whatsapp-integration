@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>whatsapp-connect · preview</title>
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+        background: #05080c;
+      }
+      /* Mirrors the Twenty side-panel / page-layout widget box the component
+         actually renders inside, so sizing bugs show up here too. */
+      #root {
+        display: flex;
+      }
+      #stage {
+        flex: 1;
+        min-width: 0;
+      }
+      #stage[data-frame='panel'] {
+        width: 420px;
+        flex: 0 0 420px;
+        margin-left: auto;
+        border-left: 1px solid rgba(255, 255, 255, 0.1);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"><div id="stage"></div></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>
