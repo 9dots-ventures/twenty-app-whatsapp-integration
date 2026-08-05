@@ -76,6 +76,12 @@ const ParticleFlow = ({ assetOrigin }: { assetOrigin: string }) => {
     ];
     const SOURCES = ['Whatsapp', 'Main Whatsapp', 'Support Whatsapp', 'Sales Whatsapp'];
 
+    // Global animation rate. 1 = original speed, 0.5 = half speed.
+    // Applied to every per-frame motion rate below (travel, snap, fade,
+    // wobble, row flash) so the whole sequence scales together.
+    // Keep in sync with SPEED in whatsapp_signup/public/index.html.
+    const SPEED = 0.7;
+
     const pick = <T,>(a: T[]): T => a[Math.floor(Math.random() * a.length)];
 
     interface Row { name: string; phone: string; source: string; flash: number; visible: boolean }
@@ -136,7 +142,7 @@ const ParticleFlow = ({ assetOrigin }: { assetOrigin: string }) => {
         state: 'travel',
         x: -60 * dpr,
         y: rowCenterY(row) + (Math.random() - 0.5) * table.rowH * 0.3,
-        speed: (2.0 + Math.random() * 2.2) * dpr,
+        speed: (2.0 + Math.random() * 2.2) * dpr * SPEED,
         wob: 0.5 + Math.random() * 1.0,
         phase: Math.random() * Math.PI * 2,
         size: table.rowH * 1.5,
@@ -229,7 +235,7 @@ const ParticleFlow = ({ assetOrigin }: { assetOrigin: string }) => {
         if (d.flash > 0.01) {
           ctx.fillStyle = `rgba(37, 211, 102, ${d.flash * 0.22})`;
           ctx.fillRect(x, rowTop, w, t.rowH);
-          d.flash *= 0.9;
+          d.flash *= Math.pow(0.9, SPEED);
         }
 
         if (!d.visible) {
@@ -281,7 +287,7 @@ const ParticleFlow = ({ assetOrigin }: { assetOrigin: string }) => {
     };
 
     const frame = () => {
-      clock += 0.016;
+      clock += 0.016 * SPEED;
       ctx.fillStyle = 'rgba(5, 8, 12, 0.30)';
       ctx.fillRect(0, 0, W, H);
 
@@ -299,7 +305,7 @@ const ParticleFlow = ({ assetOrigin }: { assetOrigin: string }) => {
           const distToTable = Math.max(0, table.x - p.x);
           const wobAmt = Math.min(1, distToTable / (table.x * 0.5)) * 0.5 * dpr;
           p.y += Math.sin(clock * p.wob + p.phase) * wobAmt;
-          p.y += (ty - p.y) * 0.04;
+          p.y += (ty - p.y) * 0.04 * SPEED;
 
           drawBubble(p.x, p.y, p.size, 0.9);
 
@@ -310,7 +316,7 @@ const ParticleFlow = ({ assetOrigin }: { assetOrigin: string }) => {
             p.sy = p.y;
           }
         } else if (p.state === 'slot') {
-          p.snap = Math.min(1, p.snap + 0.06);
+          p.snap = Math.min(1, p.snap + 0.06 * SPEED);
           const e = easeOutBack(p.snap);
           const tx = rowEntryX();
           const ty = rowCenterY(p.targetRow);
@@ -329,7 +335,7 @@ const ParticleFlow = ({ assetOrigin }: { assetOrigin: string }) => {
             p.life = 0;
           }
         } else {
-          p.life += 0.05;
+          p.life += 0.05 * SPEED;
           const a = 1 - easeInCubic(Math.min(1, p.life));
           drawBubble(rowEntryX(), rowCenterY(p.targetRow), p.size * (1 - 0.25 * p.life), a);
           if (p.life >= 1) {
