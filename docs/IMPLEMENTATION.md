@@ -12,28 +12,35 @@ User (9dots.twenty.com)
         ▼
 Front Component (whatsapp-connect.tsx)
   ├─ calls GET /s/whatsapp/config  →  get-config logic function
-  ├─ collects a WhatsApp phone number (free text, not persisted)
-  └─ "Connect" opens a new window →
+  ├─ collects a WhatsApp phone number (free text)
+  └─ "Connect" <a target="_blank"> opens signup server in new tab:
        https://whatsapp-embeddedsignup.onrender.com?twentyUrl=<encoded>&phone=<encoded>
                               │
-                              ▼
-                   Facebook Embedded Signup (popup)
+                    Two parallel requests fire from the browser:
+                    [A] POST /api/flow-event  (WABA IDs, phone)
+                    [B] POST /api/auth/callback  (FB auth code → token exchange)
                               │
-                   Render server (/api/flow-event)
+                    Whichever arrives SECOND triggers runPostSignupSequence():
+                    1. Subscribe WABA to app webhook
+                    2. Fetch phone numbers from WABA
+                    3. Register phone number for Cloud API
+                              │
+                    Browser polls GET /api/signup-status/:wabaId every 1.5 s
+                    Window closes only when done=true (or 45 s timeout)
                               │
                               ▼
                    POST /s/whatsapp/save-connection  →  save-connection logic function
                               │
                   ┌───────────┴───────────────────┐
                   ▼                               ▼
-  whatsappConnection record           Twenty API key created
-  created/updated in Twenty           (MetadataApiClient)
+  whatsappConnection record           WORKSPACE_API_KEY returned
+  created/updated in Twenty           from process.env (set by admin)
                               │
                    Render server: saveToSupabase()
                               │
                               ▼
                    whatsapp_connections row upserted in Supabase
-                   (waba_id, twenty_url, twenty_api_key, ...)
+                   (waba_id, phone_number_id, phone_number, twenty_url, twenty_api_key)
 ```
 
 ---
@@ -42,14 +49,14 @@ Front Component (whatsapp-connect.tsx)
 
 | File | Purpose |
 |---|---|
-| `src/application-config.ts` | App metadata + `APP_API_KEY` configurable setting |
+| `src/application-config.ts` | App metadata + `APP_API_KEY` and `WORKSPACE_API_KEY` configurable settings |
 | `src/constants/universal-identifiers.ts` | All stable UUIDs + `SIGNUP_SERVER_URL` constant |
 | `src/default-role.ts` | App role granting CRUD on `whatsappConnection` |
 | `src/objects/whatsapp-connection.ts` | `whatsappConnection` object definition |
 | `src/views/connections-view.ts` | "All WhatsApp Connections" index view |
 | `src/navigation-menu-items/whatsapp-connections.navigation-menu-item.ts` | "WhatsApp Connections" sidebar item → object view |
 | `src/page-layouts/whatsapp-connect.page-layout.ts` | Standalone page hosting the front component |
-| `src/front-components/whatsapp-connect.tsx` | React connect UI — calls get-config, opens signup tab, polls for new connections |
+| `src/front-components/whatsapp-connect.tsx` | React connect UI — collects phone number, opens signup tab, polls for new connections |
 | `src/command-menu/connect-command.ts` | Pinned Cmd+K action "Connect WhatsApp Business" |
 | `src/logic/get-config.ts` | Logic function: GET `/whatsapp/config` |
 | `src/logic/save-connection.ts` | Logic function: POST `/whatsapp/save-connection` |
@@ -101,8 +108,8 @@ Front Component (whatsapp-connect.tsx)
 {
   "wabaId": "string (required)",
   "phoneNumberId": "string | null",
-  "businessId": "string | null",
   "phoneNumber": "string | null",
+  "businessId": "string | null",
   "businessName": "string | null",
   "accessToken": "string | null",
   "adAccountIds": "string[] | null",
@@ -126,7 +133,7 @@ Front Component (whatsapp-connect.tsx)
 - If `APP_API_KEY` is set in app settings, incoming `x-app-api-key` header must match or the function returns `{ success: false, error: "Unauthorized" }`.
 - Looks up existing record by `wabaId`. Updates if found, creates if not.
 - Sets `status: "CONNECTED"` on every upsert.
-- After saving the record, uses `MetadataApiClient` to create a workspace API key named `"WhatsApp — <wabaId>"` (1-year expiry) assigned to the first role with `canBeAssignedToApiKeys: true` (prefers "Member"). Returns the token as `twentyApiKey`. Returns `null` if key creation fails — the connection record is still saved.
+- Returns `process.env.WORKSPACE_API_KEY` as `twentyApiKey`. This must be set manually in Twenty app settings by an admin. Returns `null` if not configured — the connection record is still saved.
 
 ---
 
@@ -141,7 +148,7 @@ Universal ID: `0f9f83c6-3493-4156-a704-6fce0dd5d9b3`
 | `name` | TEXT | `1ec00c93-58a6-4ec5-b620-c7ef52453e98` | Auto-set to `"BusinessName — WABA ID"` |
 | `wabaId` | TEXT | `22ff6e05-ca34-40d0-8747-dc4692ca6251` | Meta WABA ID — used as unique key for upsert |
 | `phoneNumberId` | TEXT | `926fb057-fd05-4a78-a8e9-ad1b30c48165` | Meta's internal phone number ID |
-| `phoneNumber` | TEXT | `7411910e-6b59-4dc0-ab40-a04cc28502a5` | Display phone number |
+| `phoneNumber` | TEXT | `7411910e-6b59-4dc0-ab40-a04cc28502a5` | Display phone number (user-entered in front component, or from Meta flowData) |
 | `businessId` | TEXT | `e6450815-2973-4ef1-8ae2-3d7658f68a32` | Meta Business ID |
 | `businessName` | TEXT | `fe781495-c5e1-4d2f-8782-e9027be9777c` | Business display name |
 | `accessToken` | TEXT | `fcfd5502-0dac-41d6-b37e-147e4cc88b36` | Meta access token (nullable, treat as sensitive) |
@@ -175,36 +182,36 @@ Universal ID: `f4f1daaf-94f5-4dac-bc41-3ea3c63bb42b`
 
 On mount calls `GET /s/whatsapp/config`.
 
-**UI** — mirrors `whatsapp_signup/public/index.html`: dark radial/linear gradient stage, glassmorphic card (blur + saturate, 24 px radius), WhatsApp → Twenty logo row with a gradient connector arrow, gradient-clipped heading, and status banners using the same `success` / `error` / `info` palettes. The `@keyframes wa-spin` rule is injected via an inline `<style>` element since inline styles cannot declare keyframes.
+**Design** — dark radial/linear gradient stage (`#06120e → #081a16 → #050b09`), glassmorphic card (blur + saturate, 24 px radius), WhatsApp → Twenty logo row with a gradient connector arrow, gradient-clipped heading, and status banners. The `@keyframes wa-spin` rule is injected via an inline `<style>` element since inline styles cannot declare keyframes.
 
-**Assets** — all images are served by the signup server and referenced by absolute URL against its origin (`SIGNUP_SERVER_URL`, falling back from the `signupServerUrl` in the config response):
+**Worker sandbox constraints** — Twenty front components run in a sandboxed Web Worker. The following browser APIs are not available and must not be used:
+- `window.open` → use `<a target="_blank">` instead
+- `new Image()` → not available; use inline SVG or emoji
+- `canvas.getContext('2d')` → Canvas API unavailable
+- `window.matchMedia` / `window.devicePixelRatio` → guard with `typeof window !== 'undefined'`
+
+**Assets** — served by the signup server, referenced by absolute URL from `SIGNUP_SERVER_URL`:
 
 | Asset | Used for |
 |---|---|
-| `/whatsapp-logo.png` | Logo row (left) + the flying chat bubble on the canvas |
+| `/whatsapp-logo.png` | Logo row (left) |
 | `/Twenty_logo.png` | Logo row (right) |
 | `/9dots-logo.jpg` | Footer branding |
 
-The two logo-row images fall back to inline SVG if they fail to load (`logosBroken` state).
+The logo images fall back to inline SVG if they fail to load (`logosBroken` state).
 
-**Background canvas** (`ParticleFlow`) — a port of the particle animation in `index.html`. Chat bubbles drift in from the left and land as rows in a mock CRM contacts table (Name / Phone / Source) drawn on the right, flashing green on arrival. Differences from the original:
+**Phone number field** — a required `tel` input. No validation is applied. The value is:
+1. Passed to the signup server as `?phone=<encoded>` in the URL
+2. Forwarded as `userPhone` in `POST /api/flow-event`
+3. Saved to `whatsappConnection.phoneNumber` in Twenty and `phone_number` in Supabase
 
-- Sized to its parent element via `ResizeObserver`, not `window.innerWidth/innerHeight`, so it works inside the side panel.
-- The bubble is the WhatsApp logo image once loaded; falls back to the 💬 emoji glyph. `crossOrigin` is deliberately not set — the canvas is never read back, so tainting is harmless and CORS headers are not required.
-- Honours `prefers-reduced-motion: reduce` by drawing the populated table once with no animation loop.
-- `cancelAnimationFrame` + `ResizeObserver.disconnect()` on unmount.
+**Connect CTA** — rendered as `<a target="_blank" rel="opener noreferrer">` (not `window.open`) to comply with the Worker sandbox. The `onClick` handler only manages component state (sets connecting, starts polling); the browser handles navigation via the `href`.
 
-Layered with `zIndex`: canvas `1` (opacity 0.85, `pointerEvents: none`), card content `3`, footer `4`. The stage is `overflow: hidden` and the card scrolls internally via `maxHeight: 100%`.
+**Polling** — while the signup tab is open, polls `GET /s/whatsapp/config` every 3 s (5-minute deadline) watching for `connections.length` to increase. On success shows a success banner and a snackbar. Displays an "N accounts connected" badge and "Connect another account" once at least one connection exists.
 
-**Footer branding** (`FooterBranding`) — 9dots logo + "made with ❤️ from 9dots" linking to `9dots.co` with the `utm_source=twenty` campaign params, absolutely positioned at the bottom of the stage. Rendered in all three states (loaded, loading, error).
+`twentyBaseUrl` falls back to `self.location.origin` when the server response returns an empty string.
 
-**Phone number field** — a required free-text `tel` input. Any country code is accepted and **no validation is applied**. The value is passed to the signup server as `?phone=<encoded>` and is **not persisted** by any backend. The Connect button is disabled while the field is empty.
-
-**Connect CTA** — there is no "Login with Facebook" button in this component; Facebook auth happens inside the signup page. The green "Connect" button calls `window.open(<signupUrl>?twentyUrl=…&phone=…, 'whatsapp-embedded-signup', 'width=720,height=860')`. If the popup is blocked, an error status banner is shown and polling does not start.
-
-**Polling** — while the signup window is open, polls `GET /s/whatsapp/config` every 3 s (5-minute deadline) watching for `connections.length` to increase; on success it shows a success banner plus a snackbar. Shows an "N accounts connected" badge and "Connect another account" once at least one connection exists.
-
-`twentyBaseUrl` is derived from `self.location.origin` (web worker origin) as a fallback when the server response returns an empty string.
+**Footer branding** (`FooterBranding`) — 9dots logo + "made with ❤️ from 9dots" linking to `9dots.co`. Absolutely positioned at the bottom of the stage. Rendered in all states.
 
 ---
 
@@ -239,6 +246,7 @@ Configured in Twenty workspace: Settings → Apps → WhatsApp Business → Conf
 | Variable | Secret | Purpose |
 |---|---|---|
 | `APP_API_KEY` | Yes | Optional shared secret. If set, Render server must send it in `x-app-api-key` header when calling `save-connection`. If not set, the endpoint is open. |
+| `WORKSPACE_API_KEY` | Yes | Twenty workspace API key created manually by an admin (Settings → API). Returned by `save-connection` so the Render server can store it in Supabase and use it to call the Twenty REST API for incoming-message contact creation. |
 
 `SIGNUP_SERVER_URL` is **not** a configurable setting — it is hardcoded as a constant in `universal-identifiers.ts` and ships with the app package.
 
@@ -258,17 +266,41 @@ Not part of the Twenty app package. Deployed separately at `https://whatsapp-emb
 | `GRAPH_API_VERSION` | Meta Graph API version (e.g. `v21.0`) |
 | `TWENTY_APP_API_KEY` | Must match `APP_API_KEY` in Twenty app settings |
 | `TWENTY_APP_URL` | Fallback Twenty URL — used if `twentyUrl` query param is missing |
-| `PERMANENT_ACCESS_TOKEN` | Long-lived token for WABA sync endpoints |
+| `PERMANENT_ACCESS_TOKEN` | Long-lived system-user token for WABA sync endpoints (subscribe, phone fetch, register) |
 | `BUSINESS_ID` | Meta Business Manager ID |
-| `DATABASE_URL` | Supabase PostgreSQL connection string — enables `saveToSupabase()` |
-| `WEBHOOK_VERIFY_TOKEN` | Arbitrary secret set when registering the webhook in Meta Business Manager — verified on `GET /api/webhook` |
+| `DATABASE_URL` | Supabase PostgreSQL connection pooler URL (port 6543, IPv4) — enables `saveToSupabase()` |
+| `WEBHOOK_VERIFY_TOKEN` | Arbitrary secret set when registering the webhook in Meta Developer Portal |
+| `WA_2FA_PIN` | Two-factor PIN for the phone number registration call (defaults to `000000`) |
 
 **Flow after signup completes:**
-1. `WA_EMBEDDED_SIGNUP` postMessage → `handleSuccessfulFlow(data.data)`
-2. `sendFlowDataToBackend('SUCCESS', flowData)` → POST `/api/flow-event` with `{ eventType, flowData, twentyUrl }`
-3. Server: `storeSuccessfulSignup` → `saveToCRM(flowData, twentyUrl)`
-4. `saveToCRM` → POST `<twentyUrl>/s/whatsapp/save-connection` → returns `{ twentyApiKey, ... }`
-5. Server: `saveToSupabase({ twentyApiKey, twentyUrl, wabaId, phoneNumberId, businessId })` → upserts into Supabase
+
+Two requests fire from the browser concurrently — order is not guaranteed:
+
+```
+[A] POST /api/flow-event  { eventType: 'SUCCESS', flowData, twentyUrl, userPhone }
+[B] POST /api/auth/callback  { code }
+```
+
+The server correlates them via `storedTokens` (in-memory Map):
+
+- **If [A] arrives first:** stores WABA entry with no token; sets up `signupProgress` entry. When [B] arrives, finds the WABA entry, merges the token, fires `runPostSignupSequence`.
+- **If [B] arrives first (typical):** exchanges code for token, stores as `__pending_token__`. When [A] arrives, finds the pending token, stores it in the WABA entry, fires `runPostSignupSequence`.
+
+`saveToCRM` and `saveToSupabase` always run from [A] (`storeSuccessfulSignup`). `runPostSignupSequence` always runs after both have arrived.
+
+**`runPostSignupSequence(wabaId, phoneNumberId, token)`** — 3-step sequence using `PERMANENT_ACCESS_TOKEN` (falls back to user token):
+
+1. `POST /{version}/{wabaId}/subscribed_apps` — subscribe WABA to app webhook
+2. `GET /{version}/{wabaId}/phone_numbers?fields=id,display_phone_number,...` — fetch and log phone numbers
+3. `POST /{version}/{phoneNumberId}/register` — register phone number for Cloud API (idempotent)
+
+Progress is tracked in `signupProgress` Map (`wabaId → { done, steps[] }`). Browser polls `GET /api/signup-status/:wabaId` every 1.5 s; window closes when `done: true` or after 45 s timeout.
+
+**`saveToCRM(flowData, twentyUrl, phoneNumber)`** — POSTs to `<twentyUrl>/s/whatsapp/save-connection`:
+- `phoneNumber` is `flowData.phone_number` (from Meta) with `userPhone` (from form) as fallback
+- Returns `{ twentyApiKey, recordId, action }`
+
+**`saveToSupabase({ ... })`** — upserts into `whatsapp_connections` by `waba_id`.
 
 **Supabase schema** (`whatsapp_connections` table):
 
@@ -277,6 +309,7 @@ CREATE TABLE whatsapp_connections (
   id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   waba_id         TEXT        NOT NULL UNIQUE,
   phone_number_id TEXT,
+  phone_number    TEXT,
   business_id     TEXT,
   twenty_url      TEXT        NOT NULL,
   twenty_api_key  TEXT,
@@ -287,7 +320,12 @@ CREATE TABLE whatsapp_connections (
 CREATE INDEX idx_whatsapp_connections_waba_id ON whatsapp_connections (waba_id);
 ```
 
-Upserts on `waba_id` — reconnecting the same WABA refreshes `twenty_api_key` and `updated_at`.
+Migration to add `phone_number` (run once in Supabase SQL editor):
+```sql
+ALTER TABLE whatsapp_connections ADD COLUMN IF NOT EXISTS phone_number TEXT;
+```
+
+Upserts on `waba_id` — reconnecting the same WABA refreshes all fields and `updated_at`.
 
 ---
 
@@ -295,7 +333,7 @@ Upserts on `waba_id` — reconnecting the same WABA refreshes `twenty_api_key` a
 
 Render handles WhatsApp Cloud API webhooks at `/api/webhook`.
 
-### Registration (one-time in Meta Business Manager)
+### Registration (one-time in Meta Developer Portal)
 
 1. Set **Callback URL** to `https://whatsapp-embeddedsignup.onrender.com/api/webhook`
 2. Set **Verify token** to the value of `WEBHOOK_VERIFY_TOKEN` (any secret string)
@@ -314,9 +352,11 @@ Flow for each incoming message event:
 3. Skip if `entry.changes[].field !== "messages"` or no contacts/messages in the payload
 4. Look up `twenty_url` + `twenty_api_key` from Supabase `whatsapp_connections` by `waba_id`
 5. Parse contact: `wa_id` → phone (prepend `+`), `profile.name` → firstName + lastName
-6. Call `GET /api` (Twenty GraphQL) — search for a person with matching `primaryPhoneNumber`
-7. If found: skip (log). If not: call `createPerson` mutation to save the contact
+6. `GET https://api.twenty.com/rest/people?filter=phones[primaryPhoneNumber][eq]:<phone>&limit=1` — dedup check
+7. If found: skip (log). If not: `POST https://api.twenty.com/rest/people` — create contact
 8. Log result; any error is non-fatal and does not affect the `200 OK` already sent
+
+**REST API base URL**: `https://api.twenty.com` for Twenty Cloud workspaces (`*.twenty.com`); `{twentyUrl}/api` for self-hosted instances. Determined by `getTwentyRestBase(twentyUrl)`.
 
 ### Twenty People fields written
 
@@ -325,31 +365,7 @@ Flow for each incoming message event:
 | `name.firstName` | First word of WhatsApp `profile.name`; falls back to full phone |
 | `name.lastName` | Remaining words of the display name |
 | `phones.primaryPhoneNumber` | `wa_id` with `+` prepended (e.g. `+15550000000`) |
-
----
-
-## Local UI Preview
-
-`yarn preview` serves `src/front-components/whatsapp-connect.tsx` as a plain React
-app on **http://localhost:4001** — no Twenty server, no Docker. Use it to iterate
-on the connect UI before syncing.
-
-| File | Purpose |
-|---|---|
-| `preview/vite.config.ts` | Vite config — port 4001, aliases Twenty imports to stubs, maps `src/*` |
-| `preview/index.html` | Host page; `#stage` mimics the widget box |
-| `preview/main.tsx` | Mounts `whatsappConnect.component`; `?frame=panel` for side-panel width |
-| `preview/stubs/define.ts` | `defineFrontComponent` → identity |
-| `preview/stubs/front-component.tsx` | `enqueueSnackbar` → DOM toast |
-| `preview/stubs/rest.ts` | Fakes `GET /s/whatsapp/config`; intercepts `window.open` |
-| `preview/README.md` | Query-param reference and common check URLs |
-
-State is driven by query params — `state=loading|error`, `connections=N`,
-`delay=ms`, `autoconnect=seconds`, `popup=real|blocked`, `frame=panel`.
-
-**Scope**: UI only. The manifest, logic functions, permissions, and the
-front-component sandbox are not exercised — validate those with `yarn twenty dev`
-against a real instance before deploying.
+| `phones.primaryPhoneCallingCode` | First 3 chars of the phone number (e.g. `+65`) |
 
 ---
 
