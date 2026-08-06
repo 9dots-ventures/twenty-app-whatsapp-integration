@@ -30,7 +30,7 @@ We specialise in these integrations and happy to help.
 ---
 
 ## How to connect Whatsapp after you installed the app
-- Add API keys in the `Access Token` column
+- Create a **workspace API key** and add it in this application -> Settings tab under `WORKSPACE_API_KEY`
 - Click "Connect WA" - it's pinned on the top right of your workspace
 - In the side bar, enter the phone number you're connecting
 - Click "Connect" and complete Meta signup in a pop-up window
