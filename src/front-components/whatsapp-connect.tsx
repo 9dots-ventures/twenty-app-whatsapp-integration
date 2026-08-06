@@ -285,11 +285,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     overflow: 'hidden',
     boxSizing: 'border-box',
-    background: [
-      'radial-gradient(1200px 800px at 10% 30%, rgba(37, 211, 102, 0.14), transparent 60%)',
-      'radial-gradient(1000px 700px at 80% 60%, rgba(18, 140, 126, 0.16), transparent 60%)',
-      'linear-gradient(120deg, #06120e 0%, #081a16 50%, #050b09 100%)',
-    ].join(', '),
+    background: '#000000',
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     color: '#eef1ff',
   },

@@ -49,7 +49,7 @@ Front Component (whatsapp-connect.tsx)
 
 | File | Purpose |
 |---|---|
-| `src/application-config.ts` | App metadata + `APP_API_KEY` and `WORKSPACE_API_KEY` configurable settings |
+| `src/application-config.ts` | App metadata + `WORKSPACE_API_KEY` configurable setting |
 | `src/constants/universal-identifiers.ts` | All stable UUIDs + `SIGNUP_SERVER_URL` constant |
 | `src/default-role.ts` | App role granting CRUD on `whatsappConnection` |
 | `src/objects/whatsapp-connection.ts` | `whatsappConnection` object definition |
@@ -99,7 +99,7 @@ Front Component (whatsapp-connect.tsx)
 | Universal ID | `62e930f6-f439-4f1d-812a-4909e9a5b568` |
 | Path | `/s/whatsapp/save-connection` |
 | Method | POST |
-| Auth required | No (but validates `x-app-api-key` header if `APP_API_KEY` setting is configured) |
+| Auth required | No — reached only via the per-request URL the front component hands to the signup server; no static secret is possible since the app can be installed into any workspace |
 | Timeout | 10 s |
 
 **Request body**
@@ -130,10 +130,35 @@ Front Component (whatsapp-connect.tsx)
 ```
 
 **Behaviour**
-- If `APP_API_KEY` is set in app settings, incoming `x-app-api-key` header must match or the function returns `{ success: false, error: "Unauthorized" }`.
 - Looks up existing record by `wabaId`. Updates if found, creates if not.
 - Sets `status: "CONNECTED"` on every upsert.
 - Returns `process.env.WORKSPACE_API_KEY` as `twentyApiKey`. This must be set manually in Twenty app settings by an admin. Returns `null` if not configured — the connection record is still saved.
+
+---
+
+## App URL / `twentyBaseUrl` — two valid addressing schemes (investigated 2026-08-06)
+
+Twenty's **App URL** setting (Settings → Apps → WhatsApp Business → Settings → App URL, e.g. `https://9dots.withtwenty.com`) is a per-workspace-installation dedicated domain for this app's HTTP routes. Each function's Triggers tab shows a **Live URL** on that domain, e.g.:
+
+- `https://9dots.withtwenty.com/whatsapp/config`
+- `https://9dots.withtwenty.com/whatsapp/save-connection`
+
+This is a **second, independent way** to reach the same functions, distinct from what the code actually uses today:
+
+| | Domain | Path prefix |
+|---|---|---|
+| **Used today** (`twentyBaseUrl` / `twentyUrl`) | Main workspace domain, e.g. `9dots.twenty.com` | `/s/whatsapp/...` (the `/s/` disambiguates "this is an app route" on the shared workspace domain) |
+| **App's own Live URL** (Settings → Triggers tab) | Dedicated App URL, e.g. `9dots.withtwenty.com` | `/whatsapp/...` (no `/s/` — this domain only ever serves this app) |
+
+**Why `twentyBaseUrl` is the main workspace domain, not the App URL:** `get-config.ts` sets it from the incoming request's `Origin` header (`get-config.ts:40`). The front component (`whatsapp-connect.tsx`) calls `/s/whatsapp/config` via the Twenty SDK's `RestApiClient`, which internally resolves `/s/...` paths against `process.env.TWENTY_FUNCTIONS_URL` (the App's dedicated URL) — but a browser's `Origin` header always reflects the *calling page's* origin, not the request's destination. Since the front component's Worker/iframe is loaded from the main workspace app, `Origin` is `9dots.twenty.com`, regardless of what domain `TWENTY_FUNCTIONS_URL` points requests to.
+
+This value (`twentyBaseUrl`) is what gets threaded through the whole flow: `whatsapp-connect.tsx` passes it to the signup server as `?twentyUrl=`, and `whatsapp_signup/server.js`'s `saveToCRM()` later POSTs to `${twentyUrl}/s/whatsapp/save-connection` — i.e. the main workspace domain, with the `/s/` prefix. This works because Twenty's main workspace domain itself proxies `/s/<app>/...` paths to the correct installed app's function (not just the dedicated App URL domain).
+
+**Could `whatsapp_signup` use the App's Live URL instead?** Yes, but not as a drop-in swap:
+- It would require `get-config.ts` to explicitly read and return `process.env.TWENTY_FUNCTIONS_URL` as a new response field (it isn't currently exposed anywhere the browser can see, unlike `twentyBaseUrl` which falls out of the `Origin` header for free).
+- `whatsapp-connect.tsx` would need to pass that new field instead of `twentyBaseUrl` to the signup server, and drop the `/s/` prefix when building the callback path.
+
+**Decision (2026-08-06): left as-is.** The current `Origin`-header approach costs nothing, needs zero config, and automatically works for any workspace that installs the app. Revisit only if the main-workspace-domain proxy behavior for `/s/<app>/...` ever turns out to be unreliable — see [get-config.ts](../src/logic/get-config.ts), [whatsapp-connect.tsx](../src/front-components/whatsapp-connect.tsx), and `saveToCRM()` in [server.js](../../whatsapp_signup/server.js).
 
 ---
 
@@ -245,7 +270,6 @@ Configured in Twenty workspace: Settings → Apps → WhatsApp Business → Conf
 
 | Variable | Secret | Purpose |
 |---|---|---|
-| `APP_API_KEY` | Yes | Optional shared secret. If set, Render server must send it in `x-app-api-key` header when calling `save-connection`. If not set, the endpoint is open. |
 | `WORKSPACE_API_KEY` | Yes | Twenty workspace API key created manually by an admin (Settings → API). Returned by `save-connection` so the Render server can store it in Supabase and use it to call the Twenty REST API for incoming-message contact creation. |
 
 `SIGNUP_SERVER_URL` is **not** a configurable setting — it is hardcoded as a constant in `universal-identifiers.ts` and ships with the app package.
@@ -264,8 +288,6 @@ Not part of the Twenty app package. Deployed separately at `https://whatsapp-emb
 | `APP_SECRET` | Meta App Secret (for auth code → token exchange) |
 | `CONFIGURATION_ID` | Meta embedded signup configuration ID |
 | `GRAPH_API_VERSION` | Meta Graph API version (e.g. `v21.0`) |
-| `TWENTY_APP_API_KEY` | Must match `APP_API_KEY` in Twenty app settings |
-| `TWENTY_APP_URL` | Fallback Twenty URL — used if `twentyUrl` query param is missing |
 | `PERMANENT_ACCESS_TOKEN` | Long-lived system-user token for WABA sync endpoints (subscribe, phone fetch, register) |
 | `BUSINESS_ID` | Meta Business Manager ID |
 | `DATABASE_URL` | Supabase PostgreSQL connection pooler URL (port 6543, IPv4) — enables `saveToSupabase()` |

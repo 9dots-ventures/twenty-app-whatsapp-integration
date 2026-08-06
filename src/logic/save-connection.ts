@@ -16,13 +16,6 @@ interface SaveConnectionBody {
 }
 
 const handler = async (params: RoutePayload) => {
-  const apiKey = process.env.APP_API_KEY;
-  const requestKey = (params.headers as Record<string, string>)?.['x-app-api-key'];
-
-  if (apiKey && requestKey !== apiKey) {
-    return { success: false, error: 'Unauthorized' };
-  }
-
   const body = (params.body ?? {}) as SaveConnectionBody;
 
   if (!body.wabaId) {
