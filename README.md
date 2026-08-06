@@ -1,33 +1,39 @@
-Business Whatsapp integration for Twenty
+## Business Whatsapp integration for Twenty
 
-## Description:
-- **Automatically create a Person record** when you message a customer on WhatsApp, or they message you.
+- **It automatically creates a Person record** when you message a customer on WhatsApp, or they message you.
 
-- **Continue to reply in Whatsapp**, and set enhance with API responses when you're ready With this integration, you can continue talking to customers on your device, and add programmatic responses via API. Both work side by side. -< REWRITE to say it's not cloud API
+- **Connect as many numbers** as you like. Every number connects with the same workspace.
 
-- **Connect many numbers**. Need to add more than one number? Connect as many numbers as you like - one per salesperson, or separate numbers for marketing, support, and sales. Every number plugs into the same workspace.
+- **Keep your accounts safe** with the official Whatsapp integration: this application uses **official Whatsapp integration**.
 
-- **Keep your accounts safe** with the official Whatsapp integration: we use official Meta APIs for this app.
+- **It uses Coexistence**: you can continue talking to customers on your phone or Whatsapp Web, and add programmatic responses via API - both work side by side. 
 
-This is a basic Whatsapp integration that helps you get initial visibility on the customers messaging your business on Whatsapp. It makes way for more advanced implementations, such as:
-- Reply to customers programmatically via API, without losing the messaging via mobile or web whatsapp. ou get both options.
-- Update related records automatically - move an Opportunity forward, schedule appointment, or write to your own custom objects
+---
+
+## Need something more advanced?
+This basic Whatsapp integration helps you get initial visibility on the customers messaging your business on Whatsapp. It makes way for more advanced implementations, such as:
+- Reply to customers programmatically via API, without losing the messaging via mobile or web Whatsapp. 
+- Update Opportunities or other objects automatically based on Whatsapp chats. Examples: create and update Opportunity when a new lead comes in; change Stage when deal is closed; eslacalte based on the contents of the chat.
 - Layer in AI-powered conversations to handle routine replies
-- Run sentiment analysis on your interactions
-- Surface lead-acquisition analytics
+- Run sentiment analysis on your interactions: what customers are asking, where they churn.
+- Surface lead-acquisition analytics: channels, conversion and more.
+
 We specialise in these integrations and happy to help.
+
+---
 
 ## Requirements
 
 1. The integration requires a registered Business Whatsapp number.
-Link the app to your WhatsApp Business number to get started.
-2. The integration requires you to have a Business Portfolio in Meta. You can create one when onboarding
+2. The integration requires you to have a Business Portfolio in Meta. You can create one when onboarding.
+
+---
 
 ## How to connect Whatsapp after you installed the app
-- add API keys [TODO]
-- Go to Command Menu Items
-- Find Twenty WABA
-- Click and complete Meta signup
+- Add API keys in the `Access Token` column
+- Click "Connect WA" - it's pinned on the top right of your workspace
+- In the side bar, enter the phone number you're connecting
+- Click "Connect" and complete Meta signup in a pop-up window
 
 ---
 For any enquiries, please contact us at hello@9dots.co
