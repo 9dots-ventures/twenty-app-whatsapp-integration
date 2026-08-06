@@ -14,7 +14,7 @@ export default defineApplication({
   category: 'Integrations',
   emailSupport: 'hello@9dots.co',
   logo: 'public/logo.svg',
-  galleryImages: ['public/screenshot-1.png'],
+  galleryImages: ['public/people_list.png'],['public/dashboard.png'],['public/Timeline.png']
   applicationVariables: {
     WORKSPACE_API_KEY: {
       universalIdentifier: 'd3a1b2c4-8e5f-4a9b-b1c2-3d4e5f6a7b8c',

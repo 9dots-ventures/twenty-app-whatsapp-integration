@@ -1,4 +1,4 @@
-## Business Whatsapp integration for Twenty
+## 💬 Business Whatsapp integration for Twenty
 
 - **It automatically creates a Person record** when you message a customer on WhatsApp, or they message you.
 
@@ -10,7 +10,7 @@
 
 ---
 
-## Need something more advanced?
+## ✨ Need something more advanced?
 This basic Whatsapp integration helps you get initial visibility on the customers messaging your business on Whatsapp. It makes way for more advanced implementations, such as:
 - Reply to customers programmatically via API, without losing the messaging via mobile or web Whatsapp. 
 - Update Opportunities or other objects automatically based on Whatsapp chats. Examples: create and update Opportunity when a new lead comes in; change Stage when deal is closed; eslacalte based on the contents of the chat.
@@ -22,14 +22,14 @@ We specialise in these integrations and happy to help.
 
 ---
 
-## Requirements
+## 📱 Requirements
 
 1. The integration requires a registered Business Whatsapp number.
-2. The integration requires you to have a Business Portfolio in Meta. You can create one when onboarding.
+2. The integration requires you to have a Business Portfolio in Meta. You can create one when onboarding, or reuse existing if you have one.
 
 ---
 
-## How to connect Whatsapp after you installed the app
+## 🔌 How to connect Whatsapp after you installed the app
 - Create a **workspace API key** and add it in this application -> Settings tab under `WORKSPACE_API_KEY`
 - Click "Connect WA" - it's pinned on the top right of your workspace
 - In the side bar, enter the phone number you're connecting
