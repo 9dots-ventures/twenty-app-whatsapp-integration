@@ -14,7 +14,7 @@ Front Component (whatsapp-connect.tsx)
   ├─ calls GET /s/whatsapp/config  →  get-config logic function
   ├─ collects a WhatsApp phone number (free text)
   └─ "Connect" <a target="_blank"> opens signup server in new tab:
-       https://whatsapp-embeddedsignup.onrender.com?twentyUrl=<encoded>&phone=<encoded>
+       https://whatsappfortwenty.9dots.co?twentyUrl=<encoded>&phone=<encoded>
                               │
                     Two parallel requests fire from the browser:
                     [A] POST /api/flow-event  (WABA IDs, phone)
@@ -79,7 +79,7 @@ Front Component (whatsapp-connect.tsx)
 
 ```json
 {
-  "signupServerUrl": "https://whatsapp-embeddedsignup.onrender.com",
+  "signupServerUrl": "https://whatsappfortwenty.9dots.co",
   "twentyBaseUrl": "https://9dots.twenty.com",
   "connections": [
     { "id": "...", "name": "...", "wabaId": "...", "phoneNumber": "...", "businessName": "...", "status": "CONNECTED" }
@@ -278,7 +278,7 @@ Configured in Twenty workspace: Settings → Apps → WhatsApp Business → Conf
 
 ## Signup Server (Render — `whatsapp_signup/`)
 
-Not part of the Twenty app package. Deployed separately at `https://whatsapp-embeddedsignup.onrender.com`.
+Not part of the Twenty app package. Deployed separately at `https://whatsappfortwenty.9dots.co`.
 
 **Relevant env vars on Render:**
 
@@ -357,7 +357,7 @@ Render handles WhatsApp Cloud API webhooks at `/api/webhook`.
 
 ### Registration (one-time in Meta Developer Portal)
 
-1. Set **Callback URL** to `https://whatsapp-embeddedsignup.onrender.com/api/webhook`
+1. Set **Callback URL** to `https://whatsappfortwenty.9dots.co/api/webhook`
 2. Set **Verify token** to the value of `WEBHOOK_VERIFY_TOKEN` (any secret string)
 3. Subscribe to the **messages** field
 

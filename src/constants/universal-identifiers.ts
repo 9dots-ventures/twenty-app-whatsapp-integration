@@ -1,5 +1,5 @@
 // Signup server — fixed URL, ships with the app
-export const SIGNUP_SERVER_URL = 'https://whatsapp-embeddedsignup.onrender.com';
+export const SIGNUP_SERVER_URL = 'https://whatsappfortwenty.9dots.co';
 
 // Application
 export const APP_DISPLAY_NAME = 'WhatsApp Business';

@@ -22,7 +22,7 @@ const state = params.get('state') ?? 'ok';
 const delay = num('delay', 400);
 const autoconnectSeconds = num('autoconnect', 6);
 
-const SIGNUP_SERVER_URL = 'https://whatsapp-embeddedsignup.onrender.com';
+const SIGNUP_SERVER_URL = 'https://whatsappfortwenty.9dots.co';
 
 let connectionCount = num('connections', 0);
 let connectClickedAt: number | null = null;
