@@ -335,6 +335,7 @@ CREATE TABLE whatsapp_connections (
   business_id     TEXT,
   twenty_url      TEXT        NOT NULL,
   twenty_api_key  TEXT,
+  status          TEXT        NOT NULL DEFAULT 'CONNECTED',
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -342,12 +343,13 @@ CREATE TABLE whatsapp_connections (
 CREATE INDEX idx_whatsapp_connections_waba_id ON whatsapp_connections (waba_id);
 ```
 
-Migration to add `phone_number` (run once in Supabase SQL editor):
+Migrations (run once in Supabase SQL editor):
 ```sql
 ALTER TABLE whatsapp_connections ADD COLUMN IF NOT EXISTS phone_number TEXT;
+ALTER TABLE whatsapp_connections ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'CONNECTED';
 ```
 
-Upserts on `waba_id` — reconnecting the same WABA refreshes all fields and `updated_at`.
+Upserts on `waba_id` — reconnecting the same WABA refreshes all fields, resets `status` to `'CONNECTED'`, and bumps `updated_at`.
 
 ---
 
@@ -359,7 +361,7 @@ Render handles WhatsApp Cloud API webhooks at `/api/webhook`.
 
 1. Set **Callback URL** to `https://whatsappfortwenty.9dots.co/api/webhook`
 2. Set **Verify token** to the value of `WEBHOOK_VERIFY_TOKEN` (any secret string)
-3. Subscribe to the **messages** field
+3. Subscribe to the **messages** and **account_update** fields
 
 ### GET `/api/webhook` — verification
 
@@ -388,6 +390,52 @@ Flow for each incoming message event:
 | `name.lastName` | Remaining words of the display name |
 | `phones.primaryPhoneNumber` | `wa_id` with `+` prepended (e.g. `+15550000000`) |
 | `phones.primaryPhoneCallingCode` | First 3 chars of the phone number (e.g. `+65`) |
+
+---
+
+## Account Update / Disconnection Tracking
+
+The `account_update` webhook field reports partner/app disconnection events. Must be subscribed to separately in the Meta App Dashboard's webhook field config (alongside `messages`) — subscribing a WABA via `POST /{wabaId}/subscribed_apps` only opts that WABA in to whatever fields the app is configured to receive.
+
+**Important**: for `account_update`, the WABA ID is at `value.waba_info.waba_id` — **not** `entry.id` (which is a different account-level ID on this field, unlike `messages` where `entry.id` is the WABA ID).
+
+Sample payloads:
+```json
+{
+  "entry": [{ "id": "807534291998902", "changes": [{
+    "field": "account_update",
+    "value": {
+      "event": "PARTNER_APP_UNINSTALLED",
+      "waba_info": { "waba_id": "862494833091949", "partner_app_id": "793702766889889", "owner_business_id": "1296011579226946" }
+    }
+  }]}],
+  "object": "whatsapp_business_account"
+}
+```
+```json
+{
+  "entry": [{ "id": "807534291998902", "changes": [{
+    "field": "account_update",
+    "value": {
+      "event": "PARTNER_REMOVED",
+      "waba_info": { "waba_id": "1996192277686385", "owner_business_id": "1027403603068939" },
+      "disconnection_info": { "reason": "ACCOUNT_DISCONNECTED", "initiated_by": "USER" }
+    }
+  }]}],
+  "object": "whatsapp_business_account"
+}
+```
+
+**`handleAccountUpdate(value)`** — only acts on `event ∈ {PARTNER_APP_UNINSTALLED, PARTNER_REMOVED}` (other events are logged and ignored). Extracts `wabaId` from `value.waba_info.waba_id`, then calls `markWabaDisconnected(wabaId)`.
+
+**`markWabaDisconnected(wabaId)`**:
+1. `UPDATE whatsapp_connections SET status = 'DISCONNECTED', updated_at = NOW() WHERE waba_id = $1` in Supabase.
+2. Looks up `twenty_url`/`twenty_api_key` via `getTwentyCredentials(wabaId)`; if absent, logs and stops (can't authenticate to Twenty without a stored API key).
+3. `setWhatsappConnectionStatus(twentyUrl, twentyApiKey, wabaId, 'DISCONNECTED')`:
+   - `GET {base}/rest/whatsappConnections?filter=wabaId[eq]:"<wabaId>"&limit=1` to find the record
+   - `PATCH {base}/rest/whatsappConnections/<id>` with `{ "status": "DISCONNECTED" }`
+
+Reconnecting the same WABA through the normal signup flow resets `status` back to `'CONNECTED'` in both Supabase and Twenty (see `saveToSupabase` and `save-connection.ts`), so no separate "reactivate" path is needed.
 
 ---
 
