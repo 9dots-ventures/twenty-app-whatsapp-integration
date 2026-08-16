@@ -13,7 +13,7 @@ export default defineApplication({
   author: '9dots',
   category: 'Integrations',
   emailSupport: 'hello@9dots.co',
-  logo: 'public/logo.svg',
+  logo: 'public/logo.png',
   galleryImages: ['public/people_list.png','public/dashboard.png','public/Timeline.png'],
   applicationVariables: {
     WORKSPACE_API_KEY: {
