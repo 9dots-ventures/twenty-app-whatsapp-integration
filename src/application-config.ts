@@ -22,5 +22,11 @@ export default defineApplication({
       value: '',
       isSecret: true,
     },
+    SIGNUP_ENCRYPTION_KEY: {
+      universalIdentifier: 'b4a98be1-fc2a-4ce6-bd28-c10cb3f11041',
+      description: 'Base64-encoded 256-bit AES-GCM key shared with the signup server. Used to encrypt WORKSPACE_API_KEY in transit over the unauthenticated save-connection endpoint — must exactly match SIGNUP_ENCRYPTION_KEY in the signup server env. Generate with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64\'))"',
+      value: '',
+      isSecret: true,
+    },
   },
 });

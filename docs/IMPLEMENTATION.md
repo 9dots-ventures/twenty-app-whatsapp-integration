@@ -31,12 +31,12 @@ Front Component (whatsapp-connect.tsx)
                               ▼
                    POST /s/whatsapp/save-connection  →  save-connection logic function
                               │
-                  ┌───────────┴───────────────────┐
-                  ▼                               ▼
-  whatsappConnection record           WORKSPACE_API_KEY returned
-  created/updated in Twenty           from process.env (set by admin)
-                              │
-                   Render server: saveToSupabase()
+                  ┌───────────┴───────────────────────┐
+                  ▼                                   ▼
+  whatsappConnection record           WORKSPACE_API_KEY encrypted with
+  created/updated in Twenty           SIGNUP_ENCRYPTION_KEY (AES-256-GCM),
+                              │        returned as encryptedApiKey
+                   Render server: decryptApiKey() → saveToSupabase()
                               │
                               ▼
                    whatsapp_connections row upserted in Supabase
@@ -49,7 +49,7 @@ Front Component (whatsapp-connect.tsx)
 
 | File | Purpose |
 |---|---|
-| `src/application-config.ts` | App metadata + `WORKSPACE_API_KEY` configurable setting |
+| `src/application-config.ts` | App metadata + `WORKSPACE_API_KEY` / `SIGNUP_ENCRYPTION_KEY` configurable settings |
 | `src/constants/universal-identifiers.ts` | All stable UUIDs + `SIGNUP_SERVER_URL` constant |
 | `src/default-role.ts` | App role granting CRUD on `whatsappConnection` |
 | `src/objects/whatsapp-connection.ts` | `whatsappConnection` object definition |
@@ -99,7 +99,7 @@ Front Component (whatsapp-connect.tsx)
 | Universal ID | `62e930f6-f439-4f1d-812a-4909e9a5b568` |
 | Path | `/s/whatsapp/save-connection` |
 | Method | POST |
-| Auth required | No — reached only via the per-request URL the front component hands to the signup server; no static secret is possible since the app can be installed into any workspace |
+| Auth required | No — reached only via the per-request URL the front component hands to the signup server; no static secret is possible since the app can be installed into any workspace. Because of this, `WORKSPACE_API_KEY` is never returned in the clear — see Behaviour below. |
 | Timeout | 10 s |
 
 **Request body**
@@ -111,7 +111,6 @@ Front Component (whatsapp-connect.tsx)
   "phoneNumber": "string | null",
   "businessId": "string | null",
   "businessName": "string | null",
-  "accessToken": "string | null",
   "adAccountIds": "string[] | null",
   "pageIds": "string[] | null"
 }
@@ -125,14 +124,14 @@ Front Component (whatsapp-connect.tsx)
   "recordId": "<uuid>",
   "wabaId": "...",
   "action": "created" | "updated",
-  "twentyApiKey": "<token or null>"
+  "encryptedApiKey": "<base64 iv+authTag+ciphertext, or null>"
 }
 ```
 
 **Behaviour**
 - Looks up existing record by `wabaId`. Updates if found, creates if not.
 - Sets `status: "CONNECTED"` on every upsert.
-- Returns `process.env.WORKSPACE_API_KEY` as `twentyApiKey`. This must be set manually in Twenty app settings by an admin. Returns `null` if not configured — the connection record is still saved.
+- `process.env.WORKSPACE_API_KEY` (set manually by an admin in Twenty app settings) is AES-256-GCM encrypted with `process.env.SIGNUP_ENCRYPTION_KEY` and returned as `encryptedApiKey` — never in the clear, since this endpoint has no auth check and is reachable by anyone who knows the workspace URL. `encryptApiKey()` in `save-connection.ts` fails closed: if `WORKSPACE_API_KEY` or `SIGNUP_ENCRYPTION_KEY` is unset, or the key isn't a valid 32-byte base64 value, `encryptedApiKey` is `null` (the connection record is still saved either way). `whatsapp_signup/server.js`'s `decryptApiKey()` is the counterpart — `SIGNUP_ENCRYPTION_KEY` must be identical (byte-for-byte, base64) in both the Twenty app settings and the signup server's env.
 
 ---
 
@@ -176,7 +175,6 @@ Universal ID: `0f9f83c6-3493-4156-a704-6fce0dd5d9b3`
 | `phoneNumber` | TEXT | `7411910e-6b59-4dc0-ab40-a04cc28502a5` | Display phone number (user-entered in front component, or from Meta flowData) |
 | `businessId` | TEXT | `e6450815-2973-4ef1-8ae2-3d7658f68a32` | Meta Business ID |
 | `businessName` | TEXT | `fe781495-c5e1-4d2f-8782-e9027be9777c` | Business display name |
-| `accessToken` | TEXT | `fcfd5502-0dac-41d6-b37e-147e4cc88b36` | Meta access token (nullable, treat as sensitive) |
 | `adAccountIds` | TEXT | `b196846f-1504-454f-a9e7-d82fecb85940` | JSON array string of ad account IDs |
 | `pageIds` | TEXT | `d45cfab1-f22b-4d82-964d-3c21fe71219c` | JSON array string of Facebook page IDs |
 | `status` | SELECT | `5fc760c3-cf97-41e9-b42b-0530084d1cb4` | `CONNECTED` / `PENDING` / `DISCONNECTED` |
@@ -270,7 +268,8 @@ Configured in Twenty workspace: Settings → Apps → WhatsApp Business → Conf
 
 | Variable | Secret | Purpose |
 |---|---|---|
-| `WORKSPACE_API_KEY` | Yes | Twenty workspace API key created manually by an admin (Settings → API). Returned by `save-connection` so the Render server can store it in Supabase and use it to call the Twenty REST API for incoming-message contact creation. |
+| `WORKSPACE_API_KEY` | Yes | Twenty workspace API key created manually by an admin (Settings → API). Encrypted and returned by `save-connection` so the Render server can store it in Supabase and use it to call the Twenty REST API for incoming-message contact creation. |
+| `SIGNUP_ENCRYPTION_KEY` | Yes | Base64-encoded 256-bit AES-GCM key used to encrypt `WORKSPACE_API_KEY` in transit (see `save-connection` Behaviour above). Must exactly match `SIGNUP_ENCRYPTION_KEY` in the signup server's environment — generate once with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` and set it identically in both places. |
 
 `SIGNUP_SERVER_URL` is **not** a configurable setting — it is hardcoded as a constant in `universal-identifiers.ts` and ships with the app package.
 
@@ -320,7 +319,7 @@ Progress is tracked in `signupProgress` Map (`wabaId → { done, steps[] }`). Br
 
 **`saveToCRM(flowData, twentyUrl, phoneNumber)`** — POSTs to `<twentyUrl>/s/whatsapp/save-connection`:
 - `phoneNumber` is `flowData.phone_number` (from Meta) with `userPhone` (from form) as fallback
-- Returns `{ twentyApiKey, recordId, action }`
+- Returns `{ encryptedApiKey, recordId, action }`; the caller (`storeSuccessfulSignup`) runs `decryptApiKey(crmResult.encryptedApiKey)` before passing the plaintext key to `saveToSupabase()`. Requires `SIGNUP_ENCRYPTION_KEY` in this server's env to match the Twenty app setting of the same name — see `application-config.ts`.
 
 **`saveToSupabase({ ... })`** — upserts into `whatsapp_connections` by `waba_id`.
 

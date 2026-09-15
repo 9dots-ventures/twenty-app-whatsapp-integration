@@ -1,7 +1,6 @@
 import { defineObject, FieldType } from 'twenty-sdk/define';
 
 import {
-  FIELD_ACCESS_TOKEN_UNIVERSAL_IDENTIFIER,
   FIELD_AD_ACCOUNT_IDS_UNIVERSAL_IDENTIFIER,
   FIELD_BUSINESS_ID_UNIVERSAL_IDENTIFIER,
   FIELD_BUSINESS_NAME_UNIVERSAL_IDENTIFIER,
@@ -76,16 +75,6 @@ export default defineObject({
       label: 'Business Name',
       description: 'Business display name from Meta',
       icon: 'IconBuilding',
-    },
-    {
-      universalIdentifier: FIELD_ACCESS_TOKEN_UNIVERSAL_IDENTIFIER,
-      name: 'accessToken',
-      type: FieldType.TEXT,
-      label: 'Access Token',
-      description: 'Meta access token — treat as sensitive',
-      icon: 'IconKey',
-      isNullable: true,
-      defaultValue: null,
     },
     {
       universalIdentifier: FIELD_AD_ACCOUNT_IDS_UNIVERSAL_IDENTIFIER,
