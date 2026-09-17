@@ -1,4 +1,4 @@
-import { randomBytes, createCipheriv } from 'crypto';
+import { randomBytes, createCipheriv, publicEncrypt, constants as cryptoConstants } from 'crypto';
 
 import { defineLogicFunction } from 'twenty-sdk/define';
 import type { RoutePayload } from 'twenty-sdk/logic-function';
@@ -8,23 +8,57 @@ import { LOGIC_SAVE_CONNECTION_UNIVERSAL_IDENTIFIER } from 'src/constants/univer
 
 const AES_ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
+const SESSION_KEY_LENGTH = 32;
+
+// Public half of a keypair generated once and controlled by the signup server operator.
+// Safe to ship in this app's public npm package — a public key only lets you encrypt,
+// never decrypt. The matching private key lives solely in the signup server's env and is
+// never committed anywhere. This is identical for every install; nothing to configure.
+const SIGNUP_SERVER_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzavrMK7WtO+j+whYsQ9
+fHbLRkboRFeHVlCAQfkCHC+xzt+WuBUxSZORJSbQoye5mc4kd5prm87iLJJA3Mkt
+Vz0Bhogwy+pnJWmPAhAQ1cJNKwk1MSf1UYSubzcBOs93sKSSNTRdqzito4XMsXOR
+xnp/sG8Qxr+zFqf27B0xpMH9kum0T8p8MaqnGFPk681zAohAReZS5+79m5bjh1Ui
+Q8kusXgFUyIQoaBp3npdDa7zwwpUs73mtmy842pRA03eoE7pe0br+6wabMrPBc88
+nZ2meaty3+V8yjWFekfsYgWDD4ZjbjAvI1KvFmS8iCLBOaqXQCVna5IdBpEQVLhi
+OwIDAQAB
+-----END PUBLIC KEY-----`;
+
+interface EncryptedApiKey {
+  encryptedSessionKey: string;
+  iv: string;
+  authTag: string;
+  ciphertext: string;
+}
 
 // save-connection has no incoming auth check (see AGENTS.md), so the workspace API key must
-// never leave this function in the clear — encrypt it with a secret only the signup server has.
-const encryptApiKey = (plaintext: string): string | null => {
-  const rawKey = process.env.SIGNUP_ENCRYPTION_KEY;
-  if (!rawKey) return null;
-
+// never leave this function in the clear. RSA-OAEP can't encrypt an arbitrarily long API key
+// directly, so we wrap it: a one-time AES-256-GCM key encrypts the payload, and that one-time
+// key is itself encrypted with the hardcoded public key. Only the signup server's private key
+// can recover it.
+const encryptApiKey = (plaintext: string): EncryptedApiKey | null => {
   try {
-    const key = Buffer.from(rawKey, 'base64');
-    if (key.length !== 32) return null;
-
+    const sessionKey = randomBytes(SESSION_KEY_LENGTH);
     const iv = randomBytes(IV_LENGTH);
-    const cipher = createCipheriv(AES_ALGORITHM, key, iv);
+    const cipher = createCipheriv(AES_ALGORITHM, sessionKey, iv);
     const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
     const authTag = cipher.getAuthTag();
 
-    return Buffer.concat([iv, authTag, ciphertext]).toString('base64');
+    const encryptedSessionKey = publicEncrypt(
+      {
+        key: SIGNUP_SERVER_PUBLIC_KEY,
+        oaepHash: 'sha256',
+        padding: cryptoConstants.RSA_PKCS1_OAEP_PADDING,
+      },
+      sessionKey,
+    );
+
+    return {
+      encryptedSessionKey: encryptedSessionKey.toString('base64'),
+      iv: iv.toString('base64'),
+      authTag: authTag.toString('base64'),
+      ciphertext: ciphertext.toString('base64'),
+    };
   } catch {
     return null;
   }
