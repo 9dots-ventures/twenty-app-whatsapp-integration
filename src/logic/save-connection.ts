@@ -1,4 +1,4 @@
-import { randomBytes, createCipheriv, publicEncrypt, constants as cryptoConstants } from 'crypto';
+import { randomBytes, createCipheriv, publicEncrypt, verify as verifySignature, constants as cryptoConstants } from 'crypto';
 
 import { defineLogicFunction } from 'twenty-sdk/define';
 import type { RoutePayload } from 'twenty-sdk/logic-function';
@@ -23,6 +23,32 @@ Q8kusXgFUyIQoaBp3npdDa7zwwpUs73mtmy842pRA03eoE7pe0br+6wabMrPBc88
 nZ2meaty3+V8yjWFekfsYgWDD4ZjbjAvI1KvFmS8iCLBOaqXQCVna5IdBpEQVLhi
 OwIDAQAB
 -----END PUBLIC KEY-----`;
+
+// Public half of a separate signing keypair, same hardcode-is-safe reasoning as above but for
+// authentication instead of confidentiality: only the signup server's private key can produce
+// a signature that verifies against this, so a request can be trusted as genuinely coming from
+// it even though this endpoint has no other auth (the app installs into arbitrary workspaces,
+// so no static per-workspace secret could validate the caller).
+const SIGNUP_SERVER_SIGNING_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAs6MJmO4ZZwqOgSMtfJKpUMS//xcU4/RHKbGd3h15T5k=
+-----END PUBLIC KEY-----`;
+
+const SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
+
+// Rejects anything not freshly signed by the signup server's private key — blocks both forged
+// requests (no valid signature possible without the private key) and replay of a captured
+// request past the freshness window.
+const isRequestAuthentic = (wabaId: string, timestamp: unknown, signature: unknown): boolean => {
+  if (typeof timestamp !== 'number' || typeof signature !== 'string') return false;
+  if (Math.abs(Date.now() - timestamp) > SIGNATURE_MAX_AGE_MS) return false;
+
+  try {
+    const message = Buffer.from(`${wabaId}.${timestamp}`, 'utf8');
+    return verifySignature(null, message, SIGNUP_SERVER_SIGNING_PUBLIC_KEY, Buffer.from(signature, 'base64'));
+  } catch {
+    return false;
+  }
+};
 
 interface EncryptedApiKey {
   encryptedSessionKey: string;
@@ -66,6 +92,8 @@ const encryptApiKey = (plaintext: string): EncryptedApiKey | null => {
 
 interface SaveConnectionBody {
   wabaId: string;
+  timestamp?: number;
+  signature?: string;
   phoneNumberId?: string;
   businessId?: string;
   phoneNumber?: string;
@@ -79,6 +107,10 @@ const handler = async (params: RoutePayload) => {
 
   if (!body.wabaId) {
     return { success: false, error: 'wabaId is required' };
+  }
+
+  if (!isRequestAuthentic(body.wabaId, body.timestamp, body.signature)) {
+    return { success: false, error: 'invalid or missing signature' };
   }
 
   const client = new CoreApiClient();

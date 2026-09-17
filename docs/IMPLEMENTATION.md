@@ -37,7 +37,8 @@ Front Component (whatsapp-connect.tsx)
   created/updated in Twenty           SIGNUP_SERVER_PUBLIC_KEY (hardcoded, RSA-OAEP
                               │        wraps a one-time AES-256-GCM key), returned
                               │        as encryptedApiKey
-                   Render server: decryptApiKey() using SIGNUP_SERVER_PRIVATE_KEY → saveToSupabase()
+                   Render server: signs request (signSaveConnectionRequest), then
+                   decryptApiKey() using SIGNUP_SERVER_ENCRYPTION_PRIVATE_KEY → saveToSupabase()
                               │
                               ▼
                    whatsapp_connections row upserted in Supabase
@@ -100,7 +101,7 @@ Front Component (whatsapp-connect.tsx)
 | Universal ID | `62e930f6-f439-4f1d-812a-4909e9a5b568` |
 | Path | `/s/whatsapp/save-connection` |
 | Method | POST |
-| Auth required | No — reached only via the per-request URL the front component hands to the signup server; no static secret is possible since the app can be installed into any workspace. Because of this, `WORKSPACE_API_KEY` is never returned in the clear — see Behaviour below. |
+| Auth required | No standard Twenty auth — no static per-workspace secret is possible since the app can be installed into any workspace. Instead, the request itself must carry a valid Ed25519 signature (`timestamp` + `signature`) verified against a hardcoded public key — see Behaviour below. Because of this, `WORKSPACE_API_KEY` is also never returned in the clear. |
 | Timeout | 10 s |
 
 **Request body**
@@ -108,6 +109,8 @@ Front Component (whatsapp-connect.tsx)
 ```json
 {
   "wabaId": "string (required)",
+  "timestamp": "number (required) — ms since epoch, must be within 5 minutes of now",
+  "signature": "string (required) — base64 Ed25519 signature of `${wabaId}.${timestamp}`",
   "phoneNumberId": "string | null",
   "phoneNumber": "string | null",
   "businessId": "string | null",
@@ -135,9 +138,10 @@ Front Component (whatsapp-connect.tsx)
 ```
 
 **Behaviour**
+- `isRequestAuthentic()` runs first, before anything else — rejects with `{ success: false, error: 'invalid or missing signature' }` if `signature` doesn't verify against the hardcoded `SIGNUP_SERVER_SIGNING_PUBLIC_KEY` for the message `${wabaId}.${timestamp}`, or if `timestamp` is more than 5 minutes old (blocks replay of a captured request). Only the signup server's private signing key can produce a signature that verifies, so this authenticates the caller without needing a per-workspace secret. Nothing is read or written to the object, and `WORKSPACE_API_KEY` is never touched, until this check passes.
 - Looks up existing record by `wabaId`. Updates if found, creates if not.
 - Sets `status: "CONNECTED"` on every upsert.
-- `process.env.WORKSPACE_API_KEY` is never returned in the clear, since this endpoint has no auth check and is reachable by anyone who knows the workspace URL. Instead it's hybrid-encrypted: a one-time AES-256-GCM session key encrypts the API key, and that session key is RSA-OAEP encrypted with `SIGNUP_SERVER_PUBLIC_KEY` — a constant hardcoded in `save-connection.ts` (safe to be public; it can only encrypt, not decrypt). `encryptApiKey()` fails closed to `null` if `WORKSPACE_API_KEY` is unset or encryption throws for any reason (the connection record is still saved either way). `whatsapp_signup/server.js`'s `decryptApiKey()` is the counterpart — it holds `SIGNUP_SERVER_PRIVATE_KEY`, the only copy of the matching private key, set once in the signup server's env and never touched by a customer's admin. This scheme is identical for every installation — there is no per-workspace key to configure.
+- `process.env.WORKSPACE_API_KEY` is never returned in the clear either. It's hybrid-encrypted: a one-time AES-256-GCM session key encrypts the API key, and that session key is RSA-OAEP encrypted with `SIGNUP_SERVER_PUBLIC_KEY` — a constant hardcoded in `save-connection.ts` (safe to be public; it can only encrypt, not decrypt). `encryptApiKey()` fails closed to `null` if `WORKSPACE_API_KEY` is unset or encryption throws for any reason (the connection record is still saved either way). `whatsapp_signup/server.js`'s `decryptApiKey()` is the counterpart — it holds `SIGNUP_SERVER_ENCRYPTION_PRIVATE_KEY`, the only copy of the matching private key, set once in the signup server's env and never touched by a customer's admin. Both this and the signing keypair are identical for every installation — there is no per-workspace key to configure.
 
 ---
 
@@ -326,7 +330,12 @@ Progress is tracked in `signupProgress` Map (`wabaId → { done, steps[] }`). Br
 
 **`saveToCRM(flowData, twentyUrl, phoneNumber)`** — POSTs to `<twentyUrl>/s/whatsapp/save-connection`:
 - `phoneNumber` is `flowData.phone_number` (from Meta) with `userPhone` (from form) as fallback
-- Returns `{ encryptedApiKey, recordId, action }`; the caller (`storeSuccessfulSignup`) runs `decryptApiKey(crmResult.encryptedApiKey)` before passing the plaintext key to `saveToSupabase()`. Requires `SIGNUP_SERVER_PRIVATE_KEY` in this server's env — the private half of the keypair whose public half is hardcoded in `save-connection.ts`. Set once, ever; not a per-workspace value.
+- Calls `signSaveConnectionRequest(wabaId)` to attach `{ timestamp, signature }` to the request body — signed with `SIGNUP_SERVER_SIGNING_PRIVATE_KEY`, the private half of the keypair whose public half (`SIGNUP_SERVER_SIGNING_PUBLIC_KEY`) is hardcoded in `save-connection.ts`. Without a valid signature the request is rejected before it touches anything.
+- Returns `{ encryptedApiKey, recordId, action }`; the caller (`storeSuccessfulSignup`) runs `decryptApiKey(crmResult.encryptedApiKey)` before passing the plaintext key to `saveToSupabase()`. Requires `SIGNUP_SERVER_ENCRYPTION_PRIVATE_KEY` in this server's env — the private half of a *separate* keypair from the signing one, whose public half (`SIGNUP_SERVER_PUBLIC_KEY`) is hardcoded in `save-connection.ts`. Both keypairs are set once, ever; neither is a per-workspace value.
+
+**Webhook dedup and per-phone locking** (`/api/webhook`): Meta redelivers webhooks at least once, so `isDuplicateMessage()` tracks seen WhatsApp message IDs (`messages[0].id`) in `processedMessageIds` (10 min TTL) and skips anything already processed. `withPhoneLock()` additionally serializes `upsertPersonInTwenty()` calls per phone number, so two near-simultaneous deliveries for the same phone can't both pass the "does this person exist" check before either create lands — this is what caused duplicate `Person` records before this fix.
+
+**`saveToSupabase`**'s upsert uses `twenty_api_key = COALESCE(EXCLUDED.twenty_api_key, whatsapp_connections.twenty_api_key)` — a reconnect that comes back without a key (e.g. `SIGNUP_SERVER_ENCRYPTION_PRIVATE_KEY` misconfigured) can no longer overwrite a good key already on file with `NULL`.
 
 **`saveToSupabase({ ... })`** — upserts into `whatsapp_connections` by `waba_id`.
 
