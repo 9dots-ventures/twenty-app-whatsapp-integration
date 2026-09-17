@@ -38,10 +38,11 @@ jobs:
           cache: yarn
           registry-url: 'https://registry.npmjs.org'
 
-      # npm's OIDC trusted publishing requires a recent npm CLI (11.5.1+); Node's bundled
-      # version can lag behind, so pin to latest here rather than assume.
-      - name: Ensure npm supports OIDC trusted publishing
-        run: npm install -g npm@latest
+      # npm's OIDC trusted publishing needs npm 11.5.1+. The npm bundled with the Node version
+      # pinned in .nvmrc already satisfies that (confirmed via a real failed run: forcing
+      # npm@latest here once tried to jump to npm 12, which requires a newer Node than .nvmrc
+      # pins and broke the job) — so there's nothing to upgrade. If .nvmrc's Node version ever
+      # changes, double-check its bundled npm still meets 11.5.1+ before assuming this is fine.
 
       - name: Install dependencies
         run: yarn install --immutable
