@@ -2697,9 +2697,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"twenty-app-new@workspace:.":
+"twenty-app-whatsapp-integration@workspace:.":
   version: 0.0.0-use.local
-  resolution: "twenty-app-new@workspace:."
+  resolution: "twenty-app-whatsapp-integration@workspace:."
   dependencies:
     "@types/node": "npm:^24.7.2"
     "@types/react": "npm:^19.0.0"

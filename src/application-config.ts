@@ -11,7 +11,7 @@ export default defineApplication({
   displayName: APP_DISPLAY_NAME,
   description: APP_DESCRIPTION,
   author: '9dots',
-  category: 'Integrations',
+  category: 'Sales',
   emailSupport: 'hello@9dots.co',
   logo: 'public/logo.png',
   galleryImages: ['public/Timeline.png','public/people_list.png','public/dashboard.png'],

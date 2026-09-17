@@ -1,0 +1,61 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      npmTag:
+        description: 'npm dist-tag (leave empty for "latest")'
+        required: false
+
+# id-token: write is what lets npm exchange this job's OIDC token for a short-lived publish
+# credential via npm Trusted Publisher — no NPM_TOKEN secret needed. It's also what makes the
+# Twenty CLI attach --provenance automatically (see twenty-sdk's publish implementation).
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: yarn
+          registry-url: 'https://registry.npmjs.org'
+
+      # npm's OIDC trusted publishing requires a recent npm CLI (11.5.1+); Node's bundled
+      # version can lag behind, so pin to latest here rather than assume.
+      - name: Ensure npm supports OIDC trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Publish to npm
+        run: |
+          if [ -n "${{ github.event.inputs.npmTag }}" ]; then
+            yarn twenty app:publish --tag "${{ github.event.inputs.npmTag }}"
+          else
+            yarn twenty app:publish
+          fi
+
+      # Not run here: `yarn twenty dev:catalog-sync` needs its own authenticated Twenty CLI
+      # remote session (see `yarn twenty remote:add`), which this CI job doesn't have. The
+      # marketplace picks up new npm versions on its own hourly sync regardless; run
+      # catalog-sync manually from a machine with an authenticated remote if you want the
+      # listing to update immediately after this workflow finishes.
